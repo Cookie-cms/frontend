@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -26,7 +26,8 @@ import SkinViewer3DF from "@/components/SkinViewer3DF";
 import { Label } from "@/components/ui/label";
 import { useSearchParams } from "next/navigation";
 
-const Home = () => {
+// Отделяем функциональность с useSearchParams в отдельный компонент
+function HomeContent() {
   const { user } = useUser();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -41,13 +42,16 @@ const Home = () => {
   const [capes, setCapes] = useState([]);
   const [userData, setUserData] = useState({});
   const [activeTab, setActiveTab] = useState("skin");
+  const [selectCapeDialogOpen, setSelectCapeDialogOpen] = useState(false);
+  const [selectedCapeId, setSelectedCapeId] = useState(null);
 
   const [editSkinDialogOpen, setEditSkinDialogOpen] = useState(false);
   const [currentEditSkin, setCurrentEditSkin] = useState(null);
   const [editSkinName, setEditSkinName] = useState("");
   
+  // Используем useSearchParams
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get('tab');
+  const tabParam = searchParams?.get('tab');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -61,7 +65,6 @@ const Home = () => {
 
     window.location.href = '/';
   };
-
 
   const openEditSkinDialog = (skin) => {
     setCurrentEditSkin(skin);
@@ -173,7 +176,6 @@ const Home = () => {
             throw new Error('Failed to fetch skin');
           }
           const skinUrl = `${API_URL}/skin/standart/${uuid}`;
-          // const skinUrl = "http://localhost:8000/api/skin/standart/202cf3c4-da2e-4944-87b5-e826748f33ea";
 
           const capeResponse = await fetch(`${API_URL}/skin/standart/cape/${uuid}`);
           const capeUrl = capeResponse.ok
@@ -369,145 +371,143 @@ const Home = () => {
     }
   };
 
-   return (
-      <div className="min-h-screen bg-background text-foreground">
-        <Navbar />
-        <div className="w-full h-[1px] bg-white mt-0 mb-6"></div>
-  
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* Left Column - User Info and Viewer */}
-            <div className="lg:w-1/3">
-              <div className="bg-background backdrop-blur-sm border-2 border-white/20 rounded-xl p-6 shadow-xl mb-6">
-                <div className="w-full text-center">
-                  <h2 className="text-2xl font-bold text-white">Your Skin</h2>
-                  <div className="w-full h-[2px] bg-white/20 mt-2 mb-6"></div>
-                </div>
-                <div className="flex items-center justify-center">
-                  <SkinViewer3D
-                    skinUrl={skinUrl}
-                    capeUrl={capeUrl}
-                    width={300}
-                    height={400}
-                  />
-                </div>
-                
-                <div className="mt-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Username:</span>
-                    <span className="text-white font-medium">{user?.username || "—"}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">UUID:</span>
-                    <span className="text-white font-medium">{userData.Uuid || "—"}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-  
-            {/* Right Column - Tabs for Skins and Capes */}
-            <div className="lg:w-2/3">
-      <div className="bg-background backdrop-blur-sm border-2 border-white/20 rounded-xl p-6 shadow-xl">
-        <div className="relative">
-          <Tabs defaultValue={tabParam === 'settings' ? 'settings' : 'skins'} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="skins">Skins</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="skins">
-              {/* Сетка скинов */}
-              <div className="flex flex-wrap mb-6 gap-6">
-                {/* New Skin Button */}
-                <div className="w-[120px] h-[220px] bg-gray-900/40 rounded-lg flex flex-col items-center justify-center border border-dashed border-gray-700 cursor-pointer hover:border-gray-500 transition-colors">
-                  <input
-                    type="file"
-                    accept="image/png"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label
-                    htmlFor="file-upload"
-                    className="flex flex-col items-center justify-center w-full h-full cursor-pointer"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-3">
-                      <Upload size={24} className="text-gray-400" />
-                    </div>
-                    <span className="text-sm text-gray-400">New skin</span>
-                  </label>
-                </div>
-                
-                {/* Список скинов */}
-                {skins.length > 0 ? (
-                  skins.map((skin) => (
-                    <div
-                      key={skin.uuid}
-                      className={`w-[120px] bg-background rounded-lg overflow-hidden border 
-                        ${skin.uuid === userData?.Selected_Skin ? 'border-blue-500' : 'border-gray-800'} 
-                        hover:border-gray-600 transition-colors cursor-pointer`}
-                      onClick={() => openEditSkinDialog(skin)}
-                    >
-                      <div className="flex flex-col relative">
-                        <div className="text-center py-1 px-2 ">
-                          <p className="text-xs truncate">{skin.name}</p>
-                        </div>
-                        
-                        <div className="flex items-center justify-center h-[160px]">
-                          <SkinViewer3DF
-                            skinUrl={`${API_URL}/skin/public/${skin.uuid}`}
-                            capeUrl={capeUrl || null}
-                            width={80}
-                            height={160}
-                            backEquipment="cape"
-                            pose="default"
-                          />
-                        </div>
-                        
-                        {skin.uuid === userData?.Selected_Skin && (
-                          <div className="absolute top-2 right-2 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-[10px]">✓</span>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="p-2 flex justify-center">
-                        <Button 
-                          size="sm"
-                          variant={skin.uuid === userData?.Selected_Skin ? "default" : "outline"}
-                          className={`text-xs h-6 w-full ${skin.uuid === userData?.Selected_Skin ? 'bg-blue-600' : ''}`} 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectSkin(skin.uuid);
-                          }}
-                          disabled={skin.uuid === userData?.Selected_Skin}
-                        >
-                          {skin.uuid === userData?.Selected_Skin ? 'Selected' : 'Select'}
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="col-span-full text-center py-6">
-                    <p className="text-gray-400">No skins available</p>
-                  </div>
-                )}
-              </div>
-                    </TabsContent>
-                    
-                    <TabsContent value="settings">
-                            <SettingsComponent />
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <Navbar />
+      <div className="w-full h-[1px] bg-white mt-0 mb-6"></div>
 
-                    </TabsContent>
-                  </Tabs>
+      <div className="container mx-auto px-4">
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Left Column - User Info and Viewer */}
+          <div className="lg:w-1/3">
+            <div className="bg-background backdrop-blur-sm border-2 border-white/20 rounded-xl p-6 shadow-xl mb-6">
+              <div className="w-full text-center">
+                <h2 className="text-2xl font-bold text-white">Your Skin</h2>
+                <div className="w-full h-[2px] bg-white/20 mt-2 mb-6"></div>
+              </div>
+              <div className="flex items-center justify-center">
+                <SkinViewer3D
+                  skinUrl={skinUrl}
+                  capeUrl={capeUrl}
+                  width={300}
+                  height={400}
+                />
+              </div>
+              
+              <div className="mt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Username:</span>
+                  <span className="text-white font-medium">{user?.username || "—"}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">UUID:</span>
+                  <span className="text-white font-medium">{userData.Uuid || "—"}</span>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-  
 
-<AlertDialog open={editSkinDialogOpen} onOpenChange={setEditSkinDialogOpen}>
+          {/* Right Column - Tabs for Skins and Capes */}
+          <div className="lg:w-2/3">
+            <div className="bg-background backdrop-blur-sm border-2 border-white/20 rounded-xl p-6 shadow-xl">
+              <div className="relative">
+                <Tabs defaultValue={tabParam === 'settings' ? 'settings' : 'skins'} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 mb-6">
+                    <TabsTrigger value="skins">Skins</TabsTrigger>
+                    <TabsTrigger value="settings">Settings</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="skins">
+                    {/* Сетка скинов */}
+                    <div className="flex flex-wrap mb-6 gap-6">
+                      {/* New Skin Button */}
+                      <div className="w-[120px] h-[220px] bg-gray-900/40 rounded-lg flex flex-col items-center justify-center border border-dashed border-gray-700 cursor-pointer hover:border-gray-500 transition-colors">
+                        <input
+                          type="file"
+                          accept="image/png"
+                          onChange={handleFileChange}
+                          className="hidden"
+                          id="file-upload"
+                        />
+                        <label
+                          htmlFor="file-upload"
+                          className="flex flex-col items-center justify-center w-full h-full cursor-pointer"
+                        >
+                          <div className="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-3">
+                            <Upload size={24} className="text-gray-400" />
+                          </div>
+                          <span className="text-sm text-gray-400">New skin</span>
+                        </label>
+                      </div>
+                      
+                      {/* Список скинов */}
+                      {skins.length > 0 ? (
+                        skins.map((skin) => (
+                          <div
+                            key={skin.uuid}
+                            className={`w-[120px] bg-background rounded-lg overflow-hidden border 
+                              ${skin.uuid === userData?.Selected_Skin ? 'border-blue-500' : 'border-gray-800'} 
+                              hover:border-gray-600 transition-colors cursor-pointer`}
+                            onClick={() => openEditSkinDialog(skin)}
+                          >
+                            <div className="flex flex-col relative">
+                              <div className="text-center py-1 px-2 ">
+                                <p className="text-xs truncate">{skin.name}</p>
+                              </div>
+                              
+                              <div className="flex items-center justify-center h-[160px]">
+                                <SkinViewer3DF
+                                  skinUrl={`${API_URL}/skin/public/${skin.uuid}`}
+                                  capeUrl={capeUrl || null}
+                                  width={80}
+                                  height={160}
+                                  backEquipment="cape"
+                                  pose="default"
+                                />
+                              </div>
+                              
+                              {skin.uuid === userData?.Selected_Skin && (
+                                <div className="absolute top-2 right-2 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <span className="text-white text-[10px]">✓</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="p-2 flex justify-center">
+                              <Button 
+                                size="sm"
+                                variant={skin.uuid === userData?.Selected_Skin ? "default" : "outline"}
+                                className={`text-xs h-6 w-full ${skin.uuid === userData?.Selected_Skin ? 'bg-blue-600' : ''}`} 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectSkin(skin.uuid);
+                                }}
+                                disabled={skin.uuid === userData?.Selected_Skin}
+                              >
+                                {skin.uuid === userData?.Selected_Skin ? 'Selected' : 'Select'}
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="col-span-full text-center py-6">
+                          <p className="text-gray-400">No skins available</p>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="settings">
+                    <SettingsComponent />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AlertDialog open={editSkinDialogOpen} onOpenChange={setEditSkinDialogOpen}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Edit Skin</AlertDialogTitle>
@@ -557,10 +557,7 @@ const Home = () => {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => {
-                        setEditSkinDialogOpen(false);
-                        // Здесь можно открыть другое модальное окно для выбора плаща
-                      }}
+                      onClick={() => setSelectCapeDialogOpen(true)}
                       disabled={capes.length === 0}
                     >
                       Select Cape
@@ -605,38 +602,113 @@ const Home = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-        <AlertDialog open={showSlimModal} onOpenChange={setShowSlimModal}>
-          <AlertDialogContent>
-            <AlertDialogTitle>Select Skin Type</AlertDialogTitle>
-            <AlertDialogDescription>
-              Do you want to apply the skin in slim mode?
-            </AlertDialogDescription>
-            <div className="flex space-x-4">
-              <AlertDialogAction onClick={() => handleSkinUpload(true)}>Yes (Slim)</AlertDialogAction>
-              <AlertDialogAction onClick={() => handleSkinUpload(false)}>No (Regular)</AlertDialogAction>
-            </div>
-          </AlertDialogContent>
-        </AlertDialog>
-  
-        <AlertDialog open={showAlert} onOpenChange={setShowAlert}>
-          <AlertDialogContent>
-            <AlertDialogTitle>Finish Registration</AlertDialogTitle>
-            <AlertDialogDescription>
-              Please create an account.
-            </AlertDialogDescription>
-            <div className="space-y-4">
-              {requiresUsername && (
-                <Input id="username" type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-              )}
-              {requiresPassword && (
-                <Input id="password" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-              )}
-            </div>
-            <AlertDialogAction onClick={handleRegister}>Register</AlertDialogAction>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    );
-  };
-  
-  export default Home;
+      <AlertDialog open={selectCapeDialogOpen} onOpenChange={setSelectCapeDialogOpen}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Select Cape</AlertDialogTitle>
+      <AlertDialogDescription>
+        Choose a cape to assign to this skin.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <div className="max-h-60 overflow-y-auto space-y-2">
+      {capes.length === 0 ? (
+        <div className="text-muted-foreground text-sm">No capes available</div>
+      ) : (
+        capes.map((cape) => (
+          <div
+            key={cape.Id}
+            className={`flex items-center gap-2 p-2 rounded cursor-pointer border ${selectedCapeId === cape.Id ? "border-blue-500 bg-blue-50" : "border-transparent hover:bg-muted/50"}`}
+            onClick={() => setSelectedCapeId(cape.Id)}
+          >
+            <span className="font-mono text-xs">{cape.Name}</span>
+            <span className="text-muted-foreground text-xs">{cape.Id.substring(0, 8)}...</span>
+          </div>
+        ))
+      )}
+    </div>
+    <AlertDialogFooter>
+      <AlertDialogCancel asChild>
+        <Button variant="outline">Cancel</Button>
+      </AlertDialogCancel>
+      <AlertDialogAction asChild>
+        <Button
+          disabled={!selectedCapeId}
+          onClick={async () => {
+            if (!currentEditSkin || !selectedCapeId) return;
+            try {
+              const cookie = Cookies.get("cookiecms_cookie");
+              const response = await fetch(`${API_URL}/home/edit/skin`, {
+                method: "PUT",
+                headers: {
+                  Authorization: `Bearer ${cookie}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  skinid: currentEditSkin.uuid,
+                  cloakid: selectedCapeId,
+                }),
+              });
+              if (response.ok) {
+                toast.success("Cape selected successfully");
+                fetchData();
+                setSelectCapeDialogOpen(false);
+                setEditSkinDialogOpen(false);
+              } else {
+                toast.error("Failed to select cape");
+              }
+            } catch {
+              toast.error("Failed to select cape");
+            }
+          }}
+        >
+          Select Cape
+        </Button>
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+      <AlertDialog open={showSlimModal} onOpenChange={setShowSlimModal}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Select Skin Type</AlertDialogTitle>
+          <AlertDialogDescription>
+            Do you want to apply the skin in slim mode?
+          </AlertDialogDescription>
+          <div className="flex space-x-4">
+            <AlertDialogAction onClick={() => handleSkinUpload(true)}>Yes (Slim)</AlertDialogAction>
+            <AlertDialogAction onClick={() => handleSkinUpload(false)}>No (Regular)</AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showAlert} onOpenChange={setShowAlert}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Finish Registration</AlertDialogTitle>
+          <AlertDialogDescription>
+            Please create an account.
+          </AlertDialogDescription>
+          <div className="space-y-4">
+            {requiresUsername && (
+              <Input id="username" type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            )}
+            {requiresPassword && (
+              <Input id="password" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            )}
+          </div>
+          <AlertDialogAction onClick={handleRegister}>Register</AlertDialogAction>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// Основной компонент страницы, оборачивающий функциональность в Suspense
+const Home = () => {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>}>
+      <HomeContent />
+    </Suspense>
+  );
+};
+
+export default Home;

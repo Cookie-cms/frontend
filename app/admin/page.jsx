@@ -149,6 +149,10 @@ export default function AdminDashboard() {
     },
   ];
 
+  useEffect(() => {
+  console.log("chartData:", chartData);
+}, [chartData]);
+
   const summaryStats = [
     { 
       title: "Total Users", 
@@ -233,14 +237,13 @@ export default function AdminDashboard() {
                   </div>
                   
                   <div className="flex flex-wrap items-center gap-4">
-                    <Select value={chartType} onValueChange={setChartType}>
+                    <Select defaultValue="totalUsers" value={chartType} onValueChange={setChartType}>
                       <SelectTrigger className="w-40">
                         <SelectValue placeholder="Select view" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent >
                         <SelectItem value="registrations">New Registrations</SelectItem>
                         <SelectItem value="totalUsers">Total Users</SelectItem>
-                        <SelectItem value="traffic">Site Traffic</SelectItem>
                       </SelectContent>
                     </Select>
                     
@@ -328,16 +331,29 @@ export default function AdminDashboard() {
                             <stop offset="95%" stopColor="#60a5fa" stopOpacity={0.1} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false} 
+                          opacity={0.4} // Увеличил с 0.2
+                          stroke="rgba(255,255,255,0.3)" // Добавил конкретный цвет с большей непрозрачностью
+                        />
                         <XAxis 
                           dataKey="day" 
                           tickLine={false} 
                           axisLine={false} 
                           tickMargin={8}
-                          style={{ fontSize: '0.75rem' }}
+                          style={{ fontSize: '0.75rem', fill: 'rgba(255,255,255,0.8)' }} // Добавил цвет текста
                           minTickGap={5}
                         />
-                        <YAxis hide />
+                        <YAxis
+                          domain={[0, 5]} // или [0, 10] если хотите больше пространства
+                          minTickGap={1}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => value}
+                          style={{ fontSize: '0.75rem', fill: 'rgba(255,255,255,0.6)' }}
+                          width={30}
+                        />
                         <Tooltip 
                           contentStyle={{ 
                             backgroundColor: 'hsl(var(--card))', 
@@ -354,23 +370,29 @@ export default function AdminDashboard() {
                         
                         {chartType === "registrations" ? (
                           <>
-                            <Area 
-                              type="monotone" 
-                              dataKey="registrations" 
-                              stroke="#10b981" 
-                              strokeWidth={2}
-                              fillOpacity={1}
+                            <Area
+                              type="monotone"
+                              dataKey="registrations"
+                              stroke="#10b981"
+                              strokeWidth={3}
+                              fillOpacity={0.2}
                               fill="url(#colorRegistrations)"
                               name="New Registrations"
+                              connectNulls={true}
+                              activeDot={{ r: 7, fill: "#10b981", stroke: "#fff", strokeWidth: 2 }}
+                              dot={{ r: 4, fill: "#10b981" }}
                             />
-                            <Area 
-                              type="monotone" 
-                              dataKey="cumulativeUsers" 
-                              stroke="#3b82f6" 
-                              strokeWidth={2}
-                              fillOpacity={1}
+                            <Area
+                              type="monotone"
+                              dataKey="cumulativeUsers"
+                              stroke="#3b82f6"
+                              strokeWidth={3}
+                              fillOpacity={0.2}
                               fill="url(#colorCumulativeUsers)"
                               name="Total Users"
+                              connectNulls={true}
+                              activeDot={{ r: 7, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }}
+                              dot={{ r: 4, fill: "#3b82f6" }}
                             />
                           </>
                         ) : chartType === "totalUsers" ? (

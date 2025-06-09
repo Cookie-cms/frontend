@@ -1,43 +1,12 @@
-/* eslint-disable jsx-a11y/alt-text */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @next/next/no-img-element */
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
 import { Button } from "@/components/ui/button";
-import { 
-  ChevronLeft, 
-  User, 
-  Mail, 
-  Shield, 
-  Image, 
-  Check, 
-  X, 
-  Edit
-} from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
-import { 
-  Card, 
-  CardContent, 
-  CardHeader, 
-  CardTitle 
-} from "@/components/ui/card";
-import Navbar from "@/components/shared/navbar";
 import {
   AlertDialog,
-  AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -46,6 +15,11 @@ import {
   AlertDialogAction,
   AlertDialogDescription,
 } from "@/components/ui/alert-dialog";
+import Navbar from "@/components/shared/navbar";
+import { Search, Edit, Trash, RefreshCw, User } from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -53,162 +27,107 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
-
-
-export default function UserDetails({ params }) {
-  const [user, setUser] = useState(null);
+export default function AdminSkins() {
+  // --- Skins state ---
+  const [skins, setSkins] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({});
-  const [userSkins, setUserSkins] = useState([]);
-  const [userOwnedCapeIds, setUserOwnedCapeIds] = useState([]);
-  const [allCapes, setAllCapes] = useState([]);
-  const [isSkinModalOpen, setIsSkinModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedSkin, setSelectedSkin] = useState(null);
   const [skinFormData, setSkinFormData] = useState({});
-  const [searchTerm, setSearchTerm] = useState("");
+  const [activeView, setActiveView] = useState("grid");
+
+  // --- Capes state ---
+  const [capes, setCapes] = useState([]);
+  const [loadingCapes, setLoadingCapes] = useState(false);
+  const [capeUploadForm, setCapeUploadForm] = useState({
+    name: "",
+    file: null,
+    fileName: ""
+  });
+  const [isCapeUploadDialogOpen, setIsCapeUploadDialogOpen] = useState(false);
+
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+  // --- Skins logic ---
   useEffect(() => {
-    const cookie = Cookies.get("cookiecms_cookie");
-    if (!cookie) {
-      window.location.href = "/";
-      return;
-    }
-    const fetchData = async () => {
-      const token = Cookies.get("cookiecms_cookie");
-      if (!token) {
-        router.push("/signin");
-        return;
-      }
-      try {
-        const userResponse = await fetch(`${API_URL}/admin/user/${params.id}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-        if (!userResponse.ok) throw new Error("Failed to fetch user data");
-        const userResult = await userResponse.json();
-        setUser(userResult.data);
-        setFormData(userResult.data);
-        setUserSkins(userResult.data.Skins);
-        setUserOwnedCapeIds(userResult.data.Capes.map((cape) => cape.Id));
-        const capesResponse = await fetch(`${API_URL}/admin/allcapes`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-        if (!capesResponse.ok) throw new Error("Failed to fetch capes");
-        const capesResult = await capesResponse.json();
-        setAllCapes(capesResult.data);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        toast.error("Failed to load user data");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [API_URL, params.id, router]);
+    fetchSkins();
+  }, []);
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === "checkbox" ? checked : value,
-    });
-  };
-
-  const handleDiscordIdChange = (e) => {
-    const value = e.target.value;
-    setFormData({
-      ...formData,
-      Discord: {
-        ...formData.Discord,
-        userid: parseInt(value, 10),
-      },
-    });
-  };
-
-  const handleCapeToggle = (capeId) => {
-    setUserOwnedCapeIds((prev) =>
-      prev.includes(capeId)
-        ? prev.filter((id) => id !== capeId)
-        : [...prev, capeId]
-    );
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const fetchSkins = async () => {
+    setLoading(true);
     const token = Cookies.get("cookiecms_cookie");
     if (!token) {
-      router.push("/signin");
+      router.push("/login");
       return;
     }
     try {
-      toast.loading("Updating user data...");
-      const response = await fetch(`${API_URL}/admin/user/${params.id}`, {
-        method: "PUT",
+      const response = await fetch(`${API_URL}/admin/skins`, {
+        method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...formData,
-          Capes: userOwnedCapeIds.map((id) => ({ Id: id })),
-        }),
       });
-      if (!response.ok) throw new Error("Failed to update user data");
+      if (!response.ok) throw new Error("Failed to fetch skins");
       const result = await response.json();
-      setUser(result.data);
-      setIsEditing(false);
-      toast.dismiss();
-      toast.success("User updated successfully");
+      setSkins(result.data || []);
     } catch (error) {
-      console.error("Error updating user data:", error);
-      toast.dismiss();
-      toast.error("Failed to update user data");
+      toast.error("Failed to load skins");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const openSkinEditModal = (skin) => {
-    setSelectedSkin(skin);
-    setSkinFormData(skin);
-    setIsSkinModalOpen(true);
-  };
+  const filteredSkins = skins.filter((skin) =>
+    skin.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const closeSkinEditModal = () => {
-    setIsSkinModalOpen(false);
-    setSelectedSkin(null);
-    setSkinFormData({});
-  };
+  const openEditDialog = useCallback((skin) => {
+    setSelectedSkin({...skin});
+    setSkinFormData({...skin});
+    setIsEditDialogOpen(true);
+  }, []);
+
+  const openDeleteDialog = useCallback((skin) => {
+    setSelectedSkin({...skin});
+    setIsDeleteDialogOpen(true);
+  }, []);
+
+  const closeEditDialog = useCallback(() => {
+    setIsEditDialogOpen(false);
+  }, []);
+
+  const closeDeleteDialog = useCallback(() => {
+    setIsDeleteDialogOpen(false);
+  }, []);
 
   const handleSkinFormChange = (e) => {
     const { name, value, type, checked } = e.target;
     setSkinFormData({
       ...skinFormData,
-      [name]: type === "checkbox" ? checked : value,
+      [name]: type === "checkbox" ? (checked ? 1 : 0) : value,
     });
   };
 
   const handleSaveSkinChanges = async () => {
-    if (!selectedSkin) return;
+    if (!selectedSkin?.uuid) {
+      toast.error("No skin selected or invalid skin data");
+      return;
+    }
     const token = Cookies.get("cookiecms_cookie");
     if (!token) {
-      router.push("/signin");
+      router.push("/login");
       return;
     }
     try {
-      toast.loading("Updating skin...");
       const response = await fetch(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
         method: "PUT",
         headers: {
@@ -217,30 +136,32 @@ export default function UserDetails({ params }) {
         },
         body: JSON.stringify(skinFormData),
       });
-      if (!response.ok) throw new Error("Failed to update skin");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to update skin");
+      }
       const result = await response.json();
-      setUserSkins((prev) =>
+      setSkins((prev) =>
         prev.map((skin) => (skin.uuid === selectedSkin.uuid ? result.data : skin))
       );
-      closeSkinEditModal();
-      toast.dismiss();
+      closeEditDialog();
       toast.success("Skin updated successfully");
     } catch (error) {
-      console.error("Error updating skin:", error);
-      toast.dismiss();
-      toast.error("Failed to update skin");
+      toast.error(error.message || "Failed to update skin");
     }
   };
 
   const handleDeleteSkin = async () => {
-    if (!selectedSkin) return;
+    if (!selectedSkin?.uuid) {
+      toast.error("No skin selected for deletion");
+      return;
+    }
     const token = Cookies.get("cookiecms_cookie");
     if (!token) {
-      router.push("/signin");
+      router.push("/login");
       return;
     }
     try {
-      toast.loading("Deleting skin...");
       const response = await fetch(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
         method: "DELETE",
         headers: {
@@ -248,535 +169,686 @@ export default function UserDetails({ params }) {
           "Content-Type": "application/json",
         },
       });
-      if (!response.ok) throw new Error("Failed to delete skin");
-      setUserSkins((prev) => prev.filter((skin) => skin.uuid !== selectedSkin.uuid));
-      closeSkinEditModal();
-      toast.dismiss();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to delete skin");
+      }
+      setSkins((prev) => prev.filter((skin) => skin.uuid !== selectedSkin.uuid));
       toast.success("Skin deleted successfully");
+      closeDeleteDialog();
     } catch (error) {
-      console.error("Error deleting skin:", error);
-      toast.dismiss();
-      toast.error("Failed to delete skin");
+      toast.error(error.message || "Failed to delete skin");
     }
   };
 
-  const renderPermissionBadge = (permLevel) => {
-    switch (permLevel) {
-      case 1:
-        return <Badge variant="secondary">User</Badge>;
-      case 2:
-        return <Badge variant="destructive">HD Skins</Badge>;
-      case 3:
-        return <Badge variant="destructive">Admins</Badge>;
-      default:
-        return <Badge variant="outline">{permLevel}</Badge>;
+  const renderSkeletonCards = () => {
+    return Array(8).fill(0).map((_, index) => (
+      <Card key={index} className="overflow-hidden">
+        <CardHeader className="pb-2">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2 mt-2" />
+        </CardHeader>
+        <CardContent className="pb-2">
+          <Skeleton className="h-24 w-24 mx-auto rounded-sm mb-2" />
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </CardContent>
+        <CardFooter>
+          <div className="flex justify-end gap-2 w-full">
+            <Skeleton className="h-8 w-8" />
+            <Skeleton className="h-8 w-8" />
+          </div>
+        </CardFooter>
+      </Card>
+    ));
+  };
+
+  const handleImageError = (e) => {
+    e.target.onerror = null;
+    e.target.src = "/placeholder-skin.png";
+  };
+
+  const switchToDeleteDialog = () => {
+    const skinToDelete = {...selectedSkin};
+    closeEditDialog();
+    setTimeout(() => openDeleteDialog(skinToDelete), 300);
+  };
+
+  // --- Capes logic ---
+  useEffect(() => {
+    fetchCapes();
+  }, []);
+
+  const fetchCapes = async () => {
+    setLoadingCapes(true);
+    const token = Cookies.get("cookiecms_cookie");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/admin/allcapes`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      setCapes(result.data || []);
+    } catch (error) {
+      toast.error("Failed to load capes");
+    } finally {
+      setLoadingCapes(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <div className="p-8">
-          <div className="flex items-center space-x-4 mb-8">
-            <Skeleton className="h-10 w-10 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <Skeleton className="h-7 w-[200px]" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleCapeUploadFormChange = (e) => {
+    const { name, value, type } = e.target;
+    if (type === "file") {
+      const file = e.target.files[0];
+      if (file) {
+        setCapeUploadForm({
+          ...capeUploadForm,
+          file,
+          fileName: file.name
+        });
+      }
+    } else {
+      setCapeUploadForm({
+        ...capeUploadForm,
+        [name]: value
+      });
+    }
+  };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <div className="flex flex-col items-center justify-center p-8 h-[80vh]">
-          <div className="text-4xl mb-4">🔍</div>
-          <h1 className="text-2xl font-bold mb-2">User Not Found</h1>
-          <p className="text-muted-foreground mb-6">The user you&apos;re looking for doesn&apos;t exist or has been removed.</p>
-          <Button onClick={() => router.push("/admin/users")}>
-            <ChevronLeft className="mr-2 h-4 w-4" /> Back to Users
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const handleUploadCape = async () => {
+    if (!capeUploadForm.file || !capeUploadForm.name) {
+      toast.error("Please provide a name and select a cape file");
+      return;
+    }
+    const token = Cookies.get("cookiecms_cookie");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    const formData = new FormData();
+    formData.append("cape", capeUploadForm.file);
+    formData.append("name", capeUploadForm.name);
+    try {
+      const response = await fetch(`${API_URL}/admin/user/cape/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      if (!response.ok) throw new Error("Failed to upload cape");
+      toast.success("Cape uploaded successfully");
+      setCapeUploadForm({ name: "", file: null, fileName: "" });
+      setIsCapeUploadDialogOpen(false);
+      fetchCapes();
+    } catch (error) {
+      toast.error(error.message || "Failed to upload cape");
+    }
+  };
 
-  const filteredCapes = allCapes.filter(cape =>
-    cape.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDeleteCape = async (capeid) => {
+    const token = Cookies.get("cookiecms_cookie");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/admin/user/cape/upload`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ capeid })
+      });
+      if (!response.ok) throw new Error("Failed to delete cape");
+      toast.success("Cape deleted successfully");
+      fetchCapes();
+    } catch (error) {
+      toast.error(error.message || "Failed to delete cape");
+    }
+  };
 
+  // --- Render ---
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
-      <div className="p-8">
-        <div className="flex justify-between items-center mb-6">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admin">Admin</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/admin/users">Users</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink>{user.Username}</BreadcrumbLink>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/admin/users")}
-              className="flex items-center"
-            >
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              Back to Users
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4 mb-6">
-          <Avatar className="h-16 w-16 border-2 border-primary/10">
-            <AvatarImage
-              src={
-                user.Discord?.userid && user.Discord?.avatar
-                  ? `https://cdn.discordapp.com/avatars/${user.Discord.userid}/${user.Discord.avatar}?size=256`
-                  : undefined
-              }
-              alt={user.Username}
-            />
-            <AvatarFallback className="text-lg">
-              {user.Username?.[0]?.toUpperCase() || "?"}
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-2xl font-bold">{user.Username}</h1>
-              {renderPermissionBadge(user.PermLvl)}
-              {user.Mail_verify ? (
-                <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">
-                  <Check className="h-3 w-3 mr-1" /> Verified
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">
-                  <X className="h-3 w-3 mr-1" /> Unverified
-                </Badge>
-              )}
+      <div className="container mx-auto max-w-7xl">
+        {/* Хлебные крошки */}
+        <Breadcrumb className="py-4 px-4 md:px-0 mt-4">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admin" className="flex items-center gap-1">
+                <span>Admin</span>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admin/skins" className="font-medium">
+                Skins Management
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="flex-1 p-4 md:px-0">
+          {/* Заголовок и кнопки действий */}
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
+            <div>
+              <h1 className="text-3xl font-bold">Skins</h1>
             </div>
-            <p className="text-sm text-muted-foreground">UUID: {user.Uuid}</p>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={fetchSkins} className="gap-1">
+                <RefreshCw size={16} />
+                <span>Refresh</span>
+              </Button>
+              <Button 
+                variant="default" 
+                size="sm"
+                onClick={() => setIsCapeUploadDialogOpen(true)}
+              >
+                Upload New Cape
+              </Button>
+            </div>
           </div>
-        </div>
-        <Tabs defaultValue="details" className="space-y-4">
-          <TabsList className="grid w-full md:w-auto grid-cols-2 md:inline-flex">
-            <TabsTrigger value="details" className="flex items-center">
-              <User className="mr-2 h-4 w-4" /> Details
-            </TabsTrigger>
-            <TabsTrigger value="skins" className="flex items-center">
-              <Image className="mr-2 h-4 w-4" /> Skins
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="details">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>User Information</CardTitle>
-                  {!isEditing && (
-                    <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                      <Edit className="h-4 w-4 mr-2" /> Edit
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {isEditing ? (
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium" htmlFor="username">
-                          Username
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <Input
-                            id="username"
-                            name="Username"
-                            value={formData.Username || ""}
-                            onChange={handleChange}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium" htmlFor="uuid">
-                          UUID
-                        </label>
-                        <Input
-                          id="uuid"
-                          value={formData.Uuid || ""}
-                          disabled
-                          className="bg-muted/40 font-mono text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium" htmlFor="email">
-                          Email
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <Input
-                            id="email"
-                            name="Mail"
-                            value={formData.Mail || ""}
-                            onChange={handleChange}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium" htmlFor="permissions">
-                          Permissions
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <Shield className="h-4 w-4 text-muted-foreground" />
-                          <Select
-                            value={formData.PermLvl?.toString() || "0"}
-                            onValueChange={(value) =>
-                              setFormData({ ...formData, PermLvl: parseInt(value, 10) })
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select permission level" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="1">User (1)</SelectItem>
-                              <SelectItem value="2">HD Skins (2)</SelectItem>
-                              <SelectItem value="3">Admin (3)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      {formData.Discord && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium" htmlFor="discord-id">
-                            Discord ID
-                          </label>
-                          <div className="flex items-center space-x-2">
-                            <Input
-                              id="discord-id"
-                              type="number"
-                              value={formData.Discord.userid || ""}
-                              onChange={handleDiscordIdChange}
-                            />
-                          </div>
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium" htmlFor="email-verified">
-                          Email Verified
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="email-verified"
-                            checked={!!formData.Mail_verify}
-                            onCheckedChange={(checked) =>
-                              setFormData({ 
-                                ...formData, 
-                                Mail_verify: checked ? 1 : 0,
-                                Mail_verification: !!checked
-                              })
-                            }
-                          />
-                          <label htmlFor="email-verified" className="text-sm">
-                            Mark as verified
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                    <Separator className="my-6" />
-                    <div className="space-y-6">                    
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">
-                          User&apos;s Capes
-                        </label>
-                        <div className="border rounded-md p-4 max-h-56 overflow-y-auto">
-                          <Input 
-                            placeholder="Search capes..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="mb-4"
-                          />
-                          <div className="space-y-2">
-                            {filteredCapes.length > 0 ? (
-                              filteredCapes.map((cape) => (
-                                <div key={cape.uuid} className="flex items-center space-x-2 p-2 hover:bg-muted/50 rounded">
-                                  <Checkbox
-                                    id={`cape-${cape.uuid}`}
-                                    checked={userOwnedCapeIds.includes(cape.uuid)}
-                                    onCheckedChange={() => handleCapeToggle(cape.uuid)}
-                                  />
-                                  <label htmlFor={`cape-${cape.uuid}`} className="flex-1 text-sm cursor-pointer">
-                                    {cape.name}
-                                  </label>
-                                  <span className="text-xs text-muted-foreground font-mono">{cape.uuid.substring(0, 8)}...</span>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="py-2 text-center text-sm text-muted-foreground">
-                                No capes match your search
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">
-                          Selected Skin
-                        </label>
-                        <Select
-                          value={formData.Selected_Skin || ""}
-                          onValueChange={(value) =>
-                            setFormData({ ...formData, Selected_Skin: value })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a skin" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {user.Skins.length > 0 ? (
-                              user.Skins.map((skin) => (
-                                <SelectItem key={skin.uuid} value={skin.uuid}>
-                                  {skin.name}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="py-2 px-2 text-center text-sm text-muted-foreground">
-                                No skins available
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="flex justify-end space-x-2 pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setIsEditing(false)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit">
-                        Save Changes
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Username</h3>
-                        <p className="flex items-center">
-                          <User className="h-4 w-4 mr-2 text-muted-foreground" />
-                          {user.Username}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">UUID</h3>
-                        <p className="text-sm font-mono">{user.Uuid}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Email</h3>
-                        <p className="flex items-center">
-                          <Mail className="h-4 w-4 mr-2 text-muted-foreground" />
-                          {user.Mail}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Email Verified</h3>
-                        <p>
-                          {user.Mail_verify ? (
-                            <span className="inline-flex items-center bg-green-50 text-green-700 px-2 py-0.5 rounded text-xs">
-                              <Check className="h-3 w-3 mr-1" /> Verified
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">
-                              <X className="h-3 w-3 mr-1" /> Not Verified
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Permissions</h3>
-                        <p className="flex items-center">
-                          <Shield className="h-4 w-4 mr-2 text-muted-foreground" />
-                          {renderPermissionBadge(user.PermLvl)}
-                        </p>
-                      </div>
-                      {user.Discord && (
-                        <div>
-                          <h3 className="text-sm font-medium text-muted-foreground mb-1">Discord</h3>
-                          <div className="flex items-center space-x-2">
-                            <Avatar className="h-6 w-6">
-                              <AvatarImage
-                                src={
-                                  user.Discord?.userid && user.Discord?.avatar
-                                    ? `https://cdn.discordapp.com/avatars/${user.Discord.userid}/${user.Discord.avatar}?size=256`
-                                    : undefined
-                                }
-                                alt="Discord Avatar"
-                              />
-                              <AvatarFallback className="text-xs">
-                                {user.Username?.[0]?.toUpperCase() || "?"}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span>
-                              {user.Discord.username} 
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({user.Discord.userid})
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <Separator />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Selected Skin</h3>
-                        <p>
-                          {user.Skins.find((skin) => skin.uuid === user.Selected_Skin)?.name || "None"}
-                          {user.Selected_Skin && (
-                            <span className="text-xs text-muted-foreground ml-2 font-mono">
-                              ({user.Selected_Skin.substring(0, 8)}...)
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-1">Selected Cape</h3>
-                        <p>
-                          {user.Capes.find((cape) => cape.Id === user.Selected_Cape)?.Name || "None"}
-                          {user.Selected_Cape && (
-                            <span className="text-xs text-muted-foreground ml-2 font-mono">
-                              ({user.Selected_Cape.substring(0, 8)}...)
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="skins">
-            <div className="grid grid-cols-2 gap-4">
-              {userSkins.map((skin) => (
-                <div key={skin.uuid} className="flex flex-col items-center p-4 border rounded-lg">
-                  <img
-                    src={`${API_URL}/skin/body/${skin.uuid}?size=100`}
-                    alt="Skin Preview"
-                    className="border"
+
+          {/* Табы и фильтры */}
+          <Tabs defaultValue="skins" className="mb-6">
+            <div className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
+              <TabsList>
+                <TabsTrigger value="skins">Skins</TabsTrigger>
+                <TabsTrigger value="capes">Capes</TabsTrigger>
+              </TabsList>
+              
+              <div className="flex items-center gap-2">
+                {/* Поисковая строка */}
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Search skins..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-8"
                   />
-                  <p className="text-sm mt-2">{skin.name}</p>
+                </div>
+                {/* Переключатель режимов просмотра */}
+                <div className="flex bg-muted rounded-md p-1">
                   <Button
-                    variant="outline"
-                    onClick={() => openSkinEditModal(skin)}
-                    className="mt-2"
+                    variant={activeView === "grid" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setActiveView("grid")}
                   >
-                    Edit Skin
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect width="7" height="7" x="3" y="3" rx="1" />
+                      <rect width="7" height="7" x="14" y="3" rx="1" />
+                      <rect width="7" height="7" x="14" y="14" rx="1" />
+                      <rect width="7" height="7" x="3" y="14" rx="1" />
+                    </svg>
+                  </Button>
+                  <Button
+                    variant={activeView === "list" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setActiveView("list")}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="21" x2="3" y1="6" y2="6" />
+                      <line x1="21" x2="3" y1="12" y2="12" />
+                      <line x1="21" x2="3" y1="18" y2="18" />
+                    </svg>
                   </Button>
                 </div>
-              ))}
+              </div>
             </div>
-          </TabsContent>
-        </Tabs>
+
+            {/* Содержимое вкладки "Все скины" */}
+            <TabsContent value="skins" className="mt-4">
+              {loading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {renderSkeletonCards()}
+                </div>
+              ) : activeView === "grid" ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {filteredSkins.length > 0 ? (
+                    filteredSkins.map((skin) => (
+                      <Card key={skin.uuid} className="overflow-hidden transition-all hover:shadow-md">
+                        <CardHeader className="p-4 pb-0">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <CardTitle className="text-lg">{skin.name}</CardTitle>
+                              <CardDescription className="flex items-center gap-1 mt-1">
+                                <User size={14} />
+                                <span>Owner ID: {skin.ownerid}</span>
+                              </CardDescription>
+                            </div>
+                            <div className="flex gap-1">
+                              {skin.slim === 1 && (
+                                <Badge variant="outline" className="text-xs">
+                                  Slim
+                                </Badge>
+                              )}
+                              {skin.hd === 1 && (
+                                <Badge className="bg-amber-500 hover:bg-amber-600 text-xs">
+                                  HD
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-center mb-3 bg-muted/40 rounded-md p-2">
+                            <img 
+                              src={`${API_URL}/skin/body/${skin.uuid}?size=100`} 
+                              alt={skin.name || "Skin"} 
+                              className="max-h-32 object-contain"
+                              onError={handleImageError}
+                            />
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">UUID:</span>
+                              <span className="font-mono text-xs truncate max-w-32">{skin.uuid}</span>
+                            </div>
+                            {skin.cloak_id && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Cape:</span>
+                                <span className="font-mono text-xs truncate max-w-32">{skin.cloak_id}</span>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                        <CardFooter className="p-4 pt-0 flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEditDialog(skin)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => openDeleteDialog(skin)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </CardFooter>
+                      </Card>
+                    ))
+                  ) : (
+                    <div className="col-span-full py-12 flex flex-col items-center justify-center text-center">
+                      <div className="bg-muted rounded-full p-3 mb-3">
+                        <Search className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-medium">No skins found</h3>
+                      <p className="text-muted-foreground mt-1 mb-4 max-w-md">
+                        We couldn&apos;t find any skins matching your search criteria. Please try a different search term.
+                      </p>
+                      <Button variant="outline" onClick={() => setSearchTerm("")}>
+                        Clear search
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-card border rounded-md overflow-hidden">
+                  <div className="grid grid-cols-12 p-3 bg-muted/50 font-medium text-sm border-b">
+                    <div className="col-span-5">Skin</div>
+                    <div className="col-span-2">Owner ID</div>
+                    <div className="col-span-2">Properties</div>
+                    <div className="col-span-2">Cape</div>
+                    <div className="col-span-1 text-right">Actions</div>
+                  </div>
+                  {filteredSkins.length > 0 ? (
+                    filteredSkins.map((skin) => (
+                      <div key={skin.uuid} className="grid grid-cols-12 p-3 items-center border-b last:border-0 hover:bg-muted/30 transition-colors">
+                        <div className="col-span-5 flex items-center gap-3">
+                          <img 
+                            src={`${API_URL}/skin/head/${skin.uuid}?size=40`} 
+                            alt={skin.name || "Skin"} 
+                            className="w-10 h-10"
+                            onError={handleImageError}
+                          />
+                          <div>
+                            <div className="font-medium">{skin.name}</div>
+                            <div className="text-xs text-muted-foreground font-mono truncate max-w-xs">{skin.uuid}</div>
+                          </div>
+                        </div>
+                        <div className="col-span-2">{skin.ownerid}</div>
+                        <div className="col-span-2">
+                          <div className="flex flex-wrap gap-1">
+                            {skin.slim === 1 && <Badge variant="outline" className="text-xs">Slim</Badge>}
+                            {skin.hd === 1 && <Badge className="bg-amber-500 hover:bg-amber-600 text-xs">HD</Badge>}
+                          </div>
+                        </div>
+                        <div className="col-span-2 truncate font-mono text-xs">
+                          {skin.cloak_id || "—"}
+                        </div>
+                        <div className="col-span-1 flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditDialog(skin)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openDeleteDialog(skin)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="py-12 flex flex-col items-center justify-center text-center">
+                      <div className="bg-muted rounded-full p-3 mb-3">
+                        <Search className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-medium">No skins found</h3>
+                      <p className="text-muted-foreground mt-1 mb-4">
+                        We couldn&apos;t find any skins matching your search criteria.
+                      </p>
+                      <Button variant="outline" onClick={() => setSearchTerm("")}>
+                        Clear search
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+            
+            {/* Содержимое вкладки "Плащи" */}
+            <TabsContent value="capes" className="mt-4">
+              <div className="mb-4 flex gap-2 flex-wrap">
+                <Input
+                  name="name"
+                  value={capeUploadForm.name}
+                  onChange={handleCapeUploadFormChange}
+                  placeholder="Cape name"
+                  className="w-48"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => document.getElementById('capeFileInput').click()}
+                >
+                  Select PNG
+                </Button>
+                <input
+                  id="capeFileInput"
+                  type="file"
+                  name="file"
+                  accept=".png"
+                  onChange={handleCapeUploadFormChange}
+                  className="hidden"
+                />
+                {capeUploadForm.fileName && (
+                  <span className="text-sm truncate max-w-40">{capeUploadForm.fileName}</span>
+                )}
+                <Button 
+                  variant="default" 
+                  size="sm"
+                  onClick={() => setIsCapeUploadDialogOpen(true)}
+                >
+                  Upload New Cape
+                </Button>
+              </div>
+              {loadingCapes ? (
+                <div className="py-12 text-center text-muted-foreground">Loading capes...</div>
+              ) : capes.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground">No capes found</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {capes.map((cape) => (
+                    <Card key={cape.id} className="overflow-hidden">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{cape.name || "Cape"}</CardTitle>
+                        <CardDescription>ID: {cape.id}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-xs text-muted-foreground">Issuer: {cape.iss}</div>
+                        <div className="text-xs text-muted-foreground">For: {cape.for}</div>
+                        <div className="text-xs text-muted-foreground">Action: {cape.action}</div>
+                        <div className="text-xs text-muted-foreground">Time: {cape.time}</div>
+                      </CardContent>
+                      <CardFooter>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteCape(cape.id)}
+                        >
+                          Delete
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          {/* Информация о пагинации */}
+          <div className="mt-6 flex justify-between items-center">
+            <div className="text-sm text-muted-foreground">
+              Showing {filteredSkins.length} of {skins.length} skins
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled>
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" disabled>
+                Next
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
-      <AlertDialog open={isSkinModalOpen} onOpenChange={setIsSkinModalOpen}>
-        <AlertDialogContent>
+
+      <AlertDialog open={isCapeUploadDialogOpen} onOpenChange={setIsCapeUploadDialogOpen}>
+      <AlertDialogContent className="max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-xl font-bold">Upload New Cape</AlertDialogTitle>
+          <AlertDialogDescription>
+            Upload a new Minecraft Cape in PNG format.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="grid gap-6 py-4">
+          <div>
+            <label className="text-sm font-medium">Cape Name</label>
+            <Input
+              name="name"
+              value={capeUploadForm.name}
+              onChange={handleCapeUploadFormChange}
+              placeholder="Enter cape name"
+              className="mt-1"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Cape File</label>
+            <div className="mt-1 flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => document.getElementById('capeFileInput').click()}
+                className="w-full"
+              >
+                Select PNG File
+              </Button>
+              <input
+                id="capeFileInput"
+                type="file"
+                name="file"
+                accept=".png"
+                onChange={handleCapeUploadFormChange}
+                className="hidden"
+              />
+              {capeUploadForm.fileName && (
+                <span className="text-sm truncate max-w-40">{capeUploadForm.fileName}</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Accepted format: PNG
+            </p>
+          </div>
+        </div>
+        <AlertDialogFooter className="flex flex-col sm:flex-row gap-2">
+          <AlertDialogCancel className="w-full sm:w-auto sm:mt-0">Cancel</AlertDialogCancel>
+          <AlertDialogAction 
+            onClick={handleUploadCape}
+            className="w-full sm:w-auto"
+          >
+            Upload Cape
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+      {/* Диалог редактирования скина */}
+      <AlertDialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Edit Skin</AlertDialogTitle>
+            <AlertDialogTitle className="text-xl font-bold">Edit Skin</AlertDialogTitle>
+            <AlertDialogDescription>
+              Make changes to the skin properties below.
+            </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-4">
-            <div className="flex flex-col space-y-1">
-              <label className="text-sm text-gray-500">Skin Name</label>
+          <div className="grid gap-6 py-4">
+            {selectedSkin && (
+              <div className="flex justify-center">
+                <img 
+                  src={`${API_URL}/skin/body/${selectedSkin.uuid}?size=120`}
+                  alt={selectedSkin.name || "Skin"}
+                  className="max-h-40"
+                  onError={handleImageError}
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium">Skin Name</label>
               <Input
                 name="name"
                 value={skinFormData.name || ""}
                 onChange={handleSkinFormChange}
+                className="mt-1"
               />
             </div>
-            <div className="flex flex-col space-y-1">
-              <label className="text-sm text-gray-500">Slim Model</label>
-              <Checkbox
-                name="slim"
-                checked={!!skinFormData.slim}
-                onCheckedChange={(checked) =>
-                  setSkinFormData({ ...skinFormData, slim: checked === "indeterminate" ? false : checked })
-                }
-              />
-            </div>
-            <div className="flex flex-col space-y-1">
-              <label className="text-sm text-gray-500">Cape</label>
-              <Select
-                value={skinFormData.cloak_id || ""}
-                onValueChange={(value) =>
-                  setSkinFormData({ ...skinFormData, cloak_id: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a cape" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allCapes.map((cape) => (
-                    <SelectItem key={cape.uuid} value={cape.uuid}>
-                      {cape.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Separator />
+            <div>
+              <h4 className="text-sm font-medium mb-2">Properties</h4>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="slim"
+                    name="slim"
+                    checked={skinFormData.slim === 1}
+                    onCheckedChange={(checked) =>
+                      setSkinFormData({ ...skinFormData, slim: checked ? 1 : 0 })
+                    }
+                  />
+                  <label htmlFor="slim" className="text-sm">
+                    Slim model (Alex)
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="hd"
+                    name="hd"
+                    checked={skinFormData.hd === 1}
+                    onCheckedChange={(checked) =>
+                      setSkinFormData({ ...skinFormData, hd: checked ? 1 : 0 })
+                    }
+                  />
+                  <label htmlFor="hd" className="text-sm">
+                    HD texture (high resolution)
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel asChild>
-              <Button variant="outline">Cancel</Button>
-            </AlertDialogCancel>
-            <Button onClick={handleSaveSkinChanges}>Save Changes</Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">Delete Skin</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete the skin.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDeleteSkin}>Delete</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+          <AlertDialogFooter className="flex flex-col sm:flex-row gap-2">
+            <AlertDialogCancel className="w-full sm:w-auto sm:mt-0">Cancel</AlertDialogCancel>
+            <Button 
+              variant="destructive" 
+              onClick={switchToDeleteDialog}
+              className="w-full sm:w-auto"
+            >
+              Delete Skin
+            </Button>
+            <AlertDialogAction 
+              onClick={handleSaveSkinChanges}
+              className="w-full sm:w-auto"
+            >
+              Save Changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Диалог подтверждения удаления */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-bold text-destructive">Delete Skin</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this skin? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {selectedSkin && (
+            <div className="flex items-center gap-4 py-4 border-y border-border my-1">
+              <img 
+                src={`${API_URL}/skin/head/${selectedSkin.uuid}?size=60`}
+                alt={selectedSkin.name || "Skin"}
+                className="w-16 h-16"
+                onError={handleImageError}
+              />
+              <div>
+                <h4 className="font-medium">{selectedSkin.name || "Unnamed skin"}</h4>
+                <p className="text-sm text-muted-foreground mt-1">UUID: {selectedSkin.uuid}</p>
+                <p className="text-sm text-muted-foreground">Owner ID: {selectedSkin.ownerid || "Unknown"}</p>
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter className="flex flex-col sm:flex-row gap-2">
+            <AlertDialogCancel className="w-full sm:w-auto sm:mt-0">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteSkin}
+              className="w-full sm:w-auto bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              Delete Permanently
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

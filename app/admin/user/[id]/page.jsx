@@ -74,7 +74,9 @@ export default function UserDetails({ params }) {
   const [searchTerm, setSearchTerm] = useState("");
   // Добавляем недостающие состояния
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
-  
+  const [initialFormData, setInitialFormData] = useState({});
+  const [initialUserOwnedCapeIds, setInitialUserOwnedCapeIds] = useState([]);
+
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -111,8 +113,10 @@ export default function UserDetails({ params }) {
         const userResult = await userResponse.json();
         setUser(userResult.data);
         setFormData(userResult.data);
+        setInitialFormData(userResult.data); // сохраняем исходные данные
         setUserSkins(userResult.data.Skins);
         setUserOwnedCapeIds(userResult.data.Capes.map((cape) => cape.Id));
+        setInitialUserOwnedCapeIds(userResult.data.Capes.map((cape) => cape.Id)); // сохраняем исходные capes
         const capesResponse = await fetch(`${API_URL}/admin/allcapes`, {
           method: "GET",
           headers: {
@@ -162,6 +166,17 @@ export default function UserDetails({ params }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Проверяем, изменились ли данные
+    const isFormDataChanged = JSON.stringify(formData) !== JSON.stringify(initialFormData);
+    const isCapesChanged = JSON.stringify(userOwnedCapeIds) !== JSON.stringify(initialUserOwnedCapeIds);
+
+    if (!isFormDataChanged && !isCapesChanged) {
+      toast.info("Нет изменений для сохранения");
+      setIsEditing(false);
+      return;
+    }
+
     const token = Cookies.get("cookiecms_cookie");
     if (!token) {
       router.push("/signin");
@@ -184,6 +199,8 @@ export default function UserDetails({ params }) {
       const result = await response.json();
       setUser(result.data);
       setIsEditing(false);
+      setInitialFormData(result.data); // обновляем исходные данные после успешного сохранения
+      setInitialUserOwnedCapeIds(result.data.Capes.map((cape) => cape.Id));
       toast.dismiss();
       toast.success("User updated successfully");
     } catch (error) {
@@ -524,7 +541,6 @@ export default function UserDetails({ params }) {
                               setFormData({ 
                                 ...formData, 
                                 Mail_verify: checked ? 1 : 0,
-                                Mail_verification: !!checked
                               })
                             }
                           />
