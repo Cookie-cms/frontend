@@ -3,7 +3,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,16 +26,20 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUser } from "@/context/user";
 
 export default function Navbar() {
-  const { user, setUser } = useUser();
+  const { user, setUser, loading, destroySession } = useUser(); // ✅ используем loading
   const [showLogoutAlert, setShowLogoutAlert] = useState(false);
   const router = useRouter();
-  const ADMIN_LEVEL = Number(process.env.NEXT_PUBLIC_ADMIN_LEVEL || 5);
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+  const showadmin = user && user.cookiecms_ap === true;
+
+  // console.log("Navbar user:", user);
+  // console.log("showadmin:", showadmin);
+  console.log(user);
   const handleLogout = async () => {
     try {
       if (user?.jwt) {
-        await fetch(`${API_URL}/api/auth/logout`, {
+        await fetch(`${API_URL}/auth/logout`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -46,10 +50,21 @@ export default function Navbar() {
     } catch (error) {
       // ignore
     }
-    setUser(false);
+    destroySession()
     setShowLogoutAlert(false);
-    router.push("/");
+    // router.push("/");
   };
+
+  if (loading) {
+    // 🔄 Можно заменить на Skeleton или лоадер
+    return (
+      <nav className="w-full bg-background text-foreground shadow-lg p-4 flex justify-between items-center">
+        <Link href="/" className="text-xl font-bold">
+          CookieCMS
+        </Link>
+      </nav>
+    );
+  }
 
   return (
     <>
@@ -79,7 +94,7 @@ export default function Navbar() {
                 <DropdownMenuLabel>{user.username || "Account"}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  {Number(user.permlvl ?? 0) >= ADMIN_LEVEL && (
+                  {showadmin && (
                     <DropdownMenuItem onClick={() => router.push("/admin")}>
                       Admin Panel
                     </DropdownMenuItem>
@@ -87,9 +102,6 @@ export default function Navbar() {
                   <DropdownMenuItem onClick={() => router.push("/home")}>
                     Home
                   </DropdownMenuItem>
-                  {/* <DropdownMenuItem onClick={() => router.push("/settings")}>
-                    Settings
-                  </DropdownMenuItem> */}
                   <DropdownMenuItem onClick={() => setShowLogoutAlert(true)}>
                     Logout
                   </DropdownMenuItem>

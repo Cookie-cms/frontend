@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import AccessDenied from "@/components/accessdenied";
 
 export default function AdminUserTable() {
   const [userData, setUserData] = useState([]);
@@ -30,6 +31,7 @@ export default function AdminUserTable() {
   const [filteredUserData, setFilteredUserData] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -53,6 +55,12 @@ export default function AdminUserTable() {
             "Content-Type": "application/json",
           },
         });
+
+        if (response.status === 403) {
+          setAccessDenied(true);
+          setLoading(false);
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to fetch user data: ${response.status}`);
@@ -243,9 +251,12 @@ export default function AdminUserTable() {
     return renderLoadingState();
   }
 
+  if (accessDenied) {
+    return <AccessDenied />;
+  }
+
   return (
-    <div className="min-h-screen text-foreground flex flex-col bg-background">
-      <Navbar />
+    <div className="min-h-screen text-foreground flex flex-col ">
       <div className="container mx-auto px-4 py-6">
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
@@ -291,7 +302,7 @@ export default function AdminUserTable() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-background">
+                  <tr className="">
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Username</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">DSID</th>

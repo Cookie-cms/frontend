@@ -13,7 +13,7 @@ function FeatureCard({ title, description, icon }) {
   );
 }
 
-export default function Home() {
+export default function welcome_standart() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />

@@ -20,15 +20,22 @@ import Cookies from "js-cookie";
 import SkinViewer3D from "@/components/SkinViewer3D";
 import { useUser } from "@/context/user";
 import { Upload } from "lucide-react";
-import { Pencil, X, Shield } from "lucide-react";
+import { Pencil, X, Shield, Check } from "lucide-react";
 import SettingsComponent from "@/components/SettingsComponent";
 import SkinViewer3DF from "@/components/SkinViewer3DF";
 import { Label } from "@/components/ui/label";
 import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 
 // Отделяем функциональность с useSearchParams в отдельный компонент
 function HomeContent() {
-  const { user } = useUser();
+  const { user, setUser } = useUser();
+  const { 
+    makeAuthenticatedRequest, 
+    makeAuthenticatedFileRequest, 
+    isAuthenticated,
+    handleTokenExpiration 
+  } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showAlert, setShowAlert] = useState(false);
@@ -49,22 +56,19 @@ function HomeContent() {
   const [currentEditSkin, setCurrentEditSkin] = useState(null);
   const [editSkinName, setEditSkinName] = useState("");
   
+  // Context menu states
+  const [contextMenu, setContextMenu] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    skin: null
+  });
+  
   // Используем useSearchParams
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get('tab');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
-
-  const handleTokenExpiration = () => {
-    Cookies.remove('cookiecms_avatar');
-    Cookies.remove('cookiecms_cookie');
-    Cookies.remove('cookiecms_userid');
-    Cookies.remove('cookiecms_username');
-    Cookies.remove('cookiecms_username_ds');
-    Cookies.remove('cookiecms_permlvl');
-
-    window.location.href = '/';
-  };
 
   const openEditSkinDialog = (skin) => {
     setCurrentEditSkin(skin);
@@ -76,13 +80,8 @@ function HomeContent() {
     if (!currentEditSkin || !editSkinName.trim()) return;
     
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home/edit/skin`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin`, {
         method: "PUT",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ 
           skinid: currentEditSkin.uuid,
           name: editSkinName 
@@ -105,13 +104,8 @@ function HomeContent() {
     if (!currentEditSkin) return;
     
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home/edit/skin`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin`, {
         method: "PUT",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ 
           skinid: currentEditSkin.uuid,
           cloakid: null 
@@ -132,28 +126,34 @@ function HomeContent() {
 
   const fetchData = async () => {
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home`, {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
       });
+      
       const result = await response.json();
-
-      if (result.error && result.msg === "Token has expired" && result.code === 401) {
-        handleTokenExpiration();
-        return;
-      }
 
       if (result?.data?.Username) {
         Cookies.set("cookiecms_username", result.data.Username, { path: "/", expires: 1 });
       }
 
-      if (result?.data?.PermLvl) {
-        Cookies.set("cookiecms_permlvl", result.data.PermLvl, { path: "/", expires: 1 });
+      if (result?.data?.Admin_Page) {
+        Cookies.set("cookiecms_ap", result.data.Admin_Page, { 
+          path: "/", 
+          expires: 1,
+          secure: false,
+          sameSite: "strict"
+        });
       }
+      
+      // Обновляем данные пользователя в контексте для обновления Navbar
+      setUser(prevUser => ({
+        ...prevUser,
+        username: result?.data?.Username || prevUser?.username,
+        userid: result?.data?.Discord_ID || prevUser?.userid, // ID для Discord аватарки
+        avatar: result?.data?.Discord_Avatar || prevUser?.avatar, // Аватарка Discord
+        cookiecms_ap: result?.data?.Admin_Page === true || result?.data?.Admin_Page === "true",
+        jwt: Cookies.get("cookiecms_cookie") || prevUser?.jwt
+      }));
 
       if (result.error && result.msg === "Your account is not finished") {
         setShowAlert(true);
@@ -202,25 +202,20 @@ function HomeContent() {
   };
 
   useEffect(() => {
-    const cookie = Cookies.get("cookiecms_cookie");
-    if (!cookie) {
-      window.location.href = "/";
-      return;
+    if (!isAuthenticated()) {
+      // window.location.href = "/";
+      // return;
     }
     fetchData();
-  }, []);
+  }, [isAuthenticated]);
 
   const handleRegister = async () => {
-    const cookie = Cookies.get("cookiecms_cookie");
     try {
-      const response = await fetch(`${API_URL}/auth/registerfinish`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/auth/registerfinish`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ username, password }),
       });
+      
       const result = await response.json();
 
       if (response.ok) {
@@ -228,7 +223,6 @@ function HomeContent() {
         setShowAlert(false);
       } else if (result.error === false && result.msg === "Invalid token or session expired") {
         toast.error("Invalid token or session expired");
-        window.location.href = "/";
       } else {
         toast.error("Registration failed");
         setShowAlert(true);
@@ -246,14 +240,7 @@ function HomeContent() {
     formData.append("slim", slim.toString());
 
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-        },
-        body: formData,
-      });
+      const response = await makeAuthenticatedFileRequest(`${API_URL}/home/upload`, formData);
 
       if (response.ok) {
         toast.success("Skin uploaded successfully");
@@ -270,12 +257,8 @@ function HomeContent() {
 
   const handleSelectSkin = async (skinId) => {
     try {
-      const response = await fetch(`${API_URL}/home/edit/skin/select`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin/select`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${Cookies.get("cookiecms_cookie")}`,
-        },
         body: JSON.stringify({ skinid: skinId }),
       });
 
@@ -290,13 +273,8 @@ function HomeContent() {
 
   const handleDeleteSkin = async (uuid) => {
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home/edit/skin`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ skinid: uuid }),
       });
 
@@ -309,6 +287,37 @@ function HomeContent() {
     } catch {
       toast.error("Failed to delete skin");
     }
+    
+    // Close context menu after action
+    setContextMenu({ visible: false, x: 0, y: 0, skin: null });
+  };
+
+  // Handle right-click context menu
+  const handleSkinRightClick = (e, skin) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      skin: skin
+    });
+  };
+
+  // Handle clicks outside context menu
+  const handleCloseContextMenu = () => {
+    setContextMenu({ visible: false, x: 0, y: 0, skin: null });
+  };
+
+  // Handle skin click (left click)
+  const handleSkinClick = (skin) => {
+    // Close context menu if open
+    if (contextMenu.visible) {
+      setContextMenu({ visible: false, x: 0, y: 0, skin: null });
+      return;
+    }
+    openEditSkinDialog(skin);
   };
 
   const handleFileChange = (event) => {
@@ -321,14 +330,8 @@ function HomeContent() {
 
   const handleSelectCape = async (cloakId) => {
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-
-      const response = await fetch(`${API_URL}/home/edit/skin`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${cookie}`,
-        },
         body: JSON.stringify({
           skinid: userData.Selected_Skin,
           cloakid: cloakId
@@ -350,13 +353,8 @@ function HomeContent() {
 
   const handleDeleteCape = async (cloakId) => {
     try {
-      const cookie = Cookies.get("cookiecms_cookie");
-      const response = await fetch(`${API_URL}/home/edit/cape`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/cape`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${cookie}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ cloakid: cloakId }),
       });
 
@@ -372,7 +370,7 @@ function HomeContent() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground" onClick={handleCloseContextMenu}>
       <Navbar />
       <div className="w-full h-[1px] bg-white mt-0 mb-6"></div>
 
@@ -447,8 +445,9 @@ function HomeContent() {
                             key={skin.uuid}
                             className={`w-[120px] bg-background rounded-lg overflow-hidden border 
                               ${skin.uuid === userData?.Selected_Skin ? 'border-blue-500' : 'border-gray-800'} 
-                              hover:border-gray-600 transition-colors cursor-pointer`}
-                            onClick={() => openEditSkinDialog(skin)}
+                              hover:border-gray-600 transition-colors cursor-pointer relative`}
+                            onClick={() => handleSkinClick(skin)}
+                            onContextMenu={(e) => handleSkinRightClick(e, skin)}
                           >
                             <div className="flex flex-col relative">
                               <div className="text-center py-1 px-2 ">
@@ -507,6 +506,55 @@ function HomeContent() {
         </div>
       </div>
 
+      {/* Context Menu */}
+      {contextMenu.visible && (
+        <div
+          className="fixed z-50 bg-background border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors flex items-center gap-2"
+            onClick={() => {
+              openEditSkinDialog(contextMenu.skin);
+              handleCloseContextMenu();
+            }}
+          >
+            <Pencil size={14} />
+            Edit
+          </button>
+          
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors flex items-center gap-2"
+            onClick={() => {
+              handleSelectSkin(contextMenu.skin?.uuid);
+              handleCloseContextMenu();
+            }}
+            disabled={contextMenu.skin?.uuid === userData?.Selected_Skin}
+          >
+            <Check size={14} />
+            {contextMenu.skin?.uuid === userData?.Selected_Skin ? 'Selected' : 'Select'}
+          </button>
+          
+          <div className="border-t border-gray-700 my-1"></div>
+          
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-red-500/20 text-red-400 transition-colors flex items-center gap-2"
+            onClick={() => {
+              if (contextMenu.skin?.uuid) {
+                handleDeleteSkin(contextMenu.skin.uuid);
+              }
+            }}
+          >
+            <X size={14} />
+            Delete
+          </button>
+        </div>
+      )}
+
       <AlertDialog open={editSkinDialogOpen} onOpenChange={setEditSkinDialogOpen}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
@@ -522,8 +570,8 @@ function HomeContent() {
                 <SkinViewer3DF
                   skinUrl={`${API_URL}/skin/public/${currentEditSkin.uuid}`}
                   capeUrl={capeUrl || null}
-                  width={150}
-                  height={200}
+                  width={350}
+                  height={400}
                   backEquipment="cape"
                   pose="default"
                 />
@@ -636,13 +684,8 @@ function HomeContent() {
           onClick={async () => {
             if (!currentEditSkin || !selectedCapeId) return;
             try {
-              const cookie = Cookies.get("cookiecms_cookie");
-              const response = await fetch(`${API_URL}/home/edit/skin`, {
+              const response = await makeAuthenticatedRequest(`${API_URL}/home/edit/skin`, {
                 method: "PUT",
-                headers: {
-                  Authorization: `Bearer ${cookie}`,
-                  "Content-Type": "application/json",
-                },
                 body: JSON.stringify({
                   skinid: currentEditSkin.uuid,
                   cloakid: selectedCapeId,

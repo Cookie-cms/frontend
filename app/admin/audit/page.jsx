@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Search, ChevronLeft, ChevronRight, Clock, User, Target } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import Navbar from "@/components/shared/navbar";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -36,6 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import AccessDenied from "@/components/accessdenied";
 
 export default function AdminAuditTable() {
   const [auditData, setAuditData] = useState([]);
@@ -44,6 +44,7 @@ export default function AdminAuditTable() {
   const [filteredAuditData, setFilteredAuditData] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -67,6 +68,12 @@ export default function AdminAuditTable() {
             "Content-Type": "application/json",
           },
         });
+
+        if (response.status === 403) {
+          setAccessDenied(true);
+          setLoading(false);
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to fetch audit data: ${response.status}`);
@@ -168,14 +175,17 @@ export default function AdminAuditTable() {
   };
 
   const getActionBadgeColor = (action) => {
-    action = action.toLowerCase();
-    if (action.includes("create") || action.includes("add")) 
+    // Ensure action is a string before calling toLowerCase()
+    const actionStr = String(action || '');
+    const actionLower = actionStr.toLowerCase();
+    
+    if (actionLower.includes("create") || actionLower.includes("add")) 
       return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-    if (action.includes("delete") || action.includes("remove")) 
+    if (actionLower.includes("delete") || actionLower.includes("remove")) 
       return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
-    if (action.includes("update") || action.includes("edit") || action.includes("modify")) 
+    if (actionLower.includes("update") || actionLower.includes("edit") || actionLower.includes("modify")) 
       return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
-    if (action.includes("login") || action.includes("auth")) 
+    if (actionLower.includes("login") || actionLower.includes("auth")) 
       return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200";
     return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200";
   };
@@ -262,7 +272,6 @@ export default function AdminAuditTable() {
 
   const renderLoadingState = () => (
     <div className="flex flex-col min-h-screen">
-      <Navbar />
       <div className="flex flex-1 justify-center items-center">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
@@ -272,15 +281,184 @@ export default function AdminAuditTable() {
     </div>
   );
 
+  if (accessDenied) {
+    return <AccessDenied />;
+  }
+
   if (loading) {
     return renderLoadingState();
   }
 
   return (
-    <div className="min-h-screen text-foreground flex flex-col bg-background">
-      <Navbar />
+    <div className="min-h-screen text-foreground flex flex-col ">
       <div className="container mx-auto px-4 py-6">
-        {/* Остальной код без изменений */}
+        {/* <Breadcrumb className="mb-6">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admin" className="flex items-center">
+                Admin
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admin/audit" className="flex items-center">
+                Audit Logs
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb> */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-2xl">Audit Logs</CardTitle>
+            <CardDescription>
+              View and search system activity logs to track changes and actions.
+            </CardDescription>
+          </CardHeader>
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 p-6 pt-0">
+            <div className="relative w-full sm:max-w-md">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400" />
+              </div>
+              <Input
+                type="search"
+                placeholder="Search by ID, issuer, action or use filters (e.g., date:2023-10-01)"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 py-2 w-full"
+              />
+            </div>
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <label htmlFor="per-page" className="text-sm whitespace-nowrap">
+                Show entries:
+              </label>
+              <Select
+                value={itemsPerPage.toString()}
+                onValueChange={handleItemsPerPageChange}
+              >
+                <SelectTrigger id="per-page" className="w-20">
+                  <SelectValue placeholder="10" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Issuer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Target</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Field Changed</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value Change</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {currentItems.map((audit) => (
+                    <tr
+                      key={audit.id}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <span className="font-mono">{audit.id}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex items-center">
+                          <User className="h-4 w-4 text-gray-400 mr-2" />
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                                {audit.iss}
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>User ID: {audit.iss}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Badge className={getActionBadgeColor(audit.action)}>
+                          {audit.action}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex items-center">
+                          <Target className="h-4 w-4 text-gray-400 mr-2" />
+                          <span>{audit.target_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {audit.field_changed ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger className="max-w-xs truncate block">
+                                {getFieldDescription(audit.field_changed)}
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <p>{audit.field_changed}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <span className="text-gray-400">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {audit.old_value !== null || audit.new_value !== null ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger className="inline-flex items-center">
+                                <span className="text-gray-500 line-through mr-2 max-w-[60px] truncate inline-block">
+                                  {audit.old_value || "—"}
+                                </span>
+                                <span className="text-green-600 font-medium max-w-[60px] truncate inline-block">
+                                  {audit.new_value || "—"}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <div className="space-y-1 p-1">
+                                  <p><strong>Old:</strong> {audit.old_value || "None"}</p>
+                                  <p><strong>New:</strong> {audit.new_value || "None"}</p>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <span className="text-gray-400">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex items-center">
+                          <Clock className="h-4 w-4 text-gray-400 mr-2" />
+                          <span>{formatTimestamp(audit.time)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredAuditData.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredAuditData.length}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                onPageChange={setCurrentPage}
+              />
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -15,7 +15,6 @@ import {
   AlertDialogAction,
   AlertDialogDescription,
 } from "@/components/ui/alert-dialog";
-import Navbar from "@/components/shared/navbar";
 import { Search, Edit, Trash, RefreshCw, User } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -31,6 +30,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import Sidebar from "@/components/shared/sidebar";
+import AccessDenied from "@/components/accessdenied";
 
 export default function AdminSkins() {
   // --- Skins state ---
@@ -79,6 +80,11 @@ export default function AdminSkins() {
       if (!response.ok) throw new Error("Failed to fetch skins");
       const result = await response.json();
       setSkins(result.data || []);
+      if (response.status === 403) {
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
     } catch (error) {
       toast.error("Failed to load skins");
     } finally {
@@ -287,6 +293,8 @@ export default function AdminSkins() {
     } catch (error) {
       toast.error(error.message || "Failed to upload cape");
     }
+
+
   };
 
   const handleDeleteCape = async (capeid) => {
@@ -315,10 +323,9 @@ export default function AdminSkins() {
   // --- Render ---
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <Navbar />
       <div className="container mx-auto max-w-7xl">
         {/* Хлебные крошки */}
-        <Breadcrumb className="py-4 px-4 md:px-0 mt-4">
+        {/* <Breadcrumb className="py-4 px-4 md:px-0 mt-4">
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink href="/admin" className="flex items-center gap-1">
@@ -332,7 +339,7 @@ export default function AdminSkins() {
               </BreadcrumbLink>
             </BreadcrumbItem>
           </BreadcrumbList>
-        </Breadcrumb>
+        </Breadcrumb> */}
 
         <div className="flex-1 p-4 md:px-0">
           {/* Заголовок и кнопки действий */}

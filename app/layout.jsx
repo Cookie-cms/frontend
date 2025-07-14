@@ -15,7 +15,7 @@ export default function RootLayout({ children }) {
           {children}
         </UserProvider>
         <Toaster position="top-right" />
-        <div className="absolute bottom-2 right-2 text-gray-500 text-sm text-center w-full pb-2">
+        <div className="bottom-2 right-2 text-gray-500 text-sm text-center w-full pb-2">
           © {new Date().getFullYear()} CookieCMS. All rights reserved.
           <br />
           Original rights belong to Mojang AB.

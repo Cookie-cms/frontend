@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
+import { useAuthWithRetry } from "@/hooks/useAuthWithRetry";
 import { Button } from "@/components/ui/button";
 import { 
   ChevronLeft, 
@@ -55,6 +56,8 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import AccessDenied from "@/components/accessdenied";
+
 
 export default function UserDetails({ params }) {
   // Используем React.use() для получения параметров
@@ -76,10 +79,25 @@ export default function UserDetails({ params }) {
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
   const [initialFormData, setInitialFormData] = useState({});
   const [initialUserOwnedCapeIds, setInitialUserOwnedCapeIds] = useState([]);
+  const [tempPermLevel, setTempPermLevel] = useState(1);
+  const [permissionGroups, setPermissionGroups] = useState([]);
+  // Track permission update history
+  const [permissionUpdateHistory, setPermissionUpdateHistory] = useState([]);
+
+  // State for batch cape management
+  const [selectedCapesForBatch, setSelectedCapesForBatch] = useState([]);
+  const [batchOperation, setBatchOperation] = useState('add'); // 'add' or 'remove'
+  const [showBatchCapeManager, setShowBatchCapeManager] = useState(false);
 
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
+  // Authentication hooks with retry mechanism
+  const { makeAuthenticatedRequest, refreshToken } = useAuthWithRetry();
+  // Add state for access denied handling
+  const [accessDenied, setAccessDenied] = useState(false);
 
+  // If access is denied, show the AccessDenied component
+  
   useEffect(() => {
     const cookie = Cookies.get("cookiecms_cookie");
     if (!cookie) {
@@ -94,22 +112,33 @@ export default function UserDetails({ params }) {
       return;
     }
     
-    const fetchData = async () => {
-      const token = Cookies.get("cookiecms_cookie");
-      if (!token) {
-        router.push("/signin");
-        return;
+    // Load permission update history from localStorage if exists
+    try {
+      const historyItem = localStorage.getItem('permissionUpdateHistory');
+      if (historyItem) {
+        // If it's a single object, wrap in array
+        let parsedHistory = JSON.parse(historyItem);
+        if (!Array.isArray(parsedHistory)) {
+          parsedHistory = [parsedHistory];
+        }
+        setPermissionUpdateHistory(parsedHistory);
       }
+    } catch (err) {
+      console.warn("Could not load permission history from storage:", err);
+    }
+    
+    const fetchData = async () => {
       try {
-        // Используем userId вместо params.id
-        const userResponse = await fetch(`${API_URL}/admin/user/${userId}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
+        setLoading(true);
+        
+        // Используем userId вместо params.id - теперь с makeAuthenticatedRequest
+        const userResponse = await makeAuthenticatedRequest(`${API_URL}/admin/user/${userId}`);
         if (!userResponse.ok) throw new Error("Failed to fetch user data");
+        if (userResponse.status === 403) {
+          setAccessDenied(true);
+          setLoading(false);
+          return;
+        }
         const userResult = await userResponse.json();
         setUser(userResult.data);
         setFormData(userResult.data);
@@ -117,16 +146,20 @@ export default function UserDetails({ params }) {
         setUserSkins(userResult.data.Skins);
         setUserOwnedCapeIds(userResult.data.Capes.map((cape) => cape.Id));
         setInitialUserOwnedCapeIds(userResult.data.Capes.map((cape) => cape.Id)); // сохраняем исходные capes
-        const capesResponse = await fetch(`${API_URL}/admin/allcapes`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
+        
+        // Fetch capes using authenticated request
+        const capesResponse = await makeAuthenticatedRequest(`${API_URL}/admin/allcapes`);
         if (!capesResponse.ok) throw new Error("Failed to fetch capes");
+        
         const capesResult = await capesResponse.json();
         setAllCapes(capesResult.data);
+
+        // Fetch permission groups using authenticated request
+        const groupsResponse = await makeAuthenticatedRequest(`${API_URL}/admin/permission-groups`);
+        if (groupsResponse.ok) {
+          const groupsResult = await groupsResponse.json();
+          setPermissionGroups(groupsResult.data || []);
+        }
       } catch (error) {
         console.error("Error fetching data:", error);
         toast.error("Failed to load user data");
@@ -134,8 +167,9 @@ export default function UserDetails({ params }) {
         setLoading(false);
       }
     };
+    
     fetchData();
-  }, [API_URL, userId, router]);
+  }, [API_URL, userId, router, makeAuthenticatedRequest]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -156,18 +190,23 @@ export default function UserDetails({ params }) {
     });
   };
 
-  const handleCapeToggle = (capeId) => {
-    setUserOwnedCapeIds((prev) =>
-      prev.includes(capeId)
-        ? prev.filter((id) => id !== capeId)
-        : [...prev, capeId]
-    );
+  const handleCapeToggle = async (capeId) => {
+    // Check if cape is already assigned to user
+    const isAlreadyAssigned = userOwnedCapeIds.includes(capeId);
+    
+    if (isAlreadyAssigned) {
+      // Remove the cape
+      await handleRemoveCapesFromUser([capeId]);
+    } else {
+      // Add the cape
+      await handleAddCapesToUser([capeId]);
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Проверяем, изменились ли данные
+    // Проверяем, изменились ли данные (без учета плащей, т.к. они обновляются отдельно)
     const isFormDataChanged = JSON.stringify(formData) !== JSON.stringify(initialFormData);
     const isCapesChanged = JSON.stringify(userOwnedCapeIds) !== JSON.stringify(initialUserOwnedCapeIds);
 
@@ -177,32 +216,69 @@ export default function UserDetails({ params }) {
       return;
     }
 
-    const token = Cookies.get("cookiecms_cookie");
-    if (!token) {
-      router.push("/signin");
-      return;
-    }
     try {
       toast.loading("Updating user data...");
-      const response = await fetch(`${API_URL}/admin/user/${userId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...formData,
-          Capes: userOwnedCapeIds.map((id) => ({ Id: id })),
-        }),
-      });
-      if (!response.ok) throw new Error("Failed to update user data");
-      const result = await response.json();
-      setUser(result.data);
+      
+      // Ensure token is fresh before making the request (will try up to 3 times)
+      await refreshToken();
+      
+      let userUpdateSuccess = true;
+      
+      // Only update user data if there are changes other than capes
+      if (isFormDataChanged) {
+        // Use authenticated request with retry mechanism - only send formData without capes
+        const response = await makeAuthenticatedRequest(`${API_URL}/admin/user/${userId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            ...formData,
+            // Don't include Capes in the main user update
+          }),
+        });
+        
+        if (!response.ok) {
+          userUpdateSuccess = false;
+          throw new Error("Failed to update user data");
+        }
+        
+        const result = await response.json();
+        setUser(result.data);
+        setInitialFormData(result.data); // обновляем исходные данные после успешного сохранения
+      }
+      
+      // Handle cape changes separately
+      if (isCapesChanged) {
+        // Calculate differences between initial and current capes
+        const capesToAdd = userOwnedCapeIds.filter(id => !initialUserOwnedCapeIds.includes(id));
+        const capesToRemove = initialUserOwnedCapeIds.filter(id => !userOwnedCapeIds.includes(id));
+        
+        let capesUpdateSuccess = true;
+        
+        // Add new capes
+        if (capesToAdd.length > 0) {
+          const addSuccess = await handleAddCapesToUser(capesToAdd);
+          if (!addSuccess) capesUpdateSuccess = false;
+        }
+        
+        // Remove capes
+        if (capesToRemove.length > 0) {
+          const removeSuccess = await handleRemoveCapesFromUser(capesToRemove);
+          if (!removeSuccess) capesUpdateSuccess = false;
+        }
+        
+        // Update the initial capes state
+        setInitialUserOwnedCapeIds([...userOwnedCapeIds]);
+      }
+      
       setIsEditing(false);
-      setInitialFormData(result.data); // обновляем исходные данные после успешного сохранения
-      setInitialUserOwnedCapeIds(result.data.Capes.map((cape) => cape.Id));
       toast.dismiss();
-      toast.success("User updated successfully");
+      
+      if (isFormDataChanged && isCapesChanged) {
+        toast.success("User data and capes updated successfully");
+      } else if (isFormDataChanged) {
+        toast.success("User data updated successfully");
+      } else if (isCapesChanged) {
+        toast.success("User capes updated successfully");
+      }
     } catch (error) {
       console.error("Error updating user data:", error);
       toast.dismiss();
@@ -232,29 +308,68 @@ export default function UserDetails({ params }) {
 
   const handleSaveSkinChanges = async () => {
     if (!selectedSkin) return;
-    const token = Cookies.get("cookiecms_cookie");
-    if (!token) {
-      router.push("/signin");
+    
+    // Создаем объект с измененными полями
+    const changedFields = {};
+    const editableFields = ["name", "slim", "cloak_id"]; // список редактируемых полей
+    
+    editableFields.forEach(key => {
+      if (skinFormData[key] !== selectedSkin[key]) {
+        console.log(`Field ${key} changed: ${selectedSkin[key]} -> ${skinFormData[key]}`);
+        changedFields[key] = skinFormData[key];
+      }
+    });
+    
+    // Проверяем, есть ли изменения
+    if (Object.keys(changedFields).length === 0) {
+      toast.info("No changes detected");
+      closeSkinEditModal();
       return;
     }
+    
+    console.log("Sending changed fields:", changedFields);
+    
     try {
       toast.loading("Updating skin...");
-      const response = await fetch(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
+      
+      // Ensure token is fresh before making the request (will try up to 3 times)
+      await refreshToken();
+      
+      // Use authenticated request with retry mechanism
+      const response = await makeAuthenticatedRequest(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
         method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(skinFormData),
+        body: JSON.stringify(changedFields),
       });
       if (!response.ok) throw new Error("Failed to update skin");
+      
       const result = await response.json();
+      console.log("Server response:", result);
+      
+      // Проверяем, что все изменения были применены
+      let allChangesApplied = true;
+      const changesNotApplied = [];
+      
+      Object.keys(changedFields).forEach(key => {
+        if (result.data[key] !== changedFields[key]) {
+          allChangesApplied = false;
+          changesNotApplied.push(key);
+          console.warn(`Changed field ${key} was not applied correctly. Sent: ${changedFields[key]}, Received: ${result.data[key]}`);
+        }
+      });
+      
+      // Обновляем список скинов с данными с сервера
       setUserSkins((prev) =>
         prev.map((skin) => (skin.uuid === selectedSkin.uuid ? result.data : skin))
       );
+      
       closeSkinEditModal();
       toast.dismiss();
-      toast.success("Skin updated successfully");
+      
+      if (allChangesApplied) {
+        toast.success("Skin updated successfully");
+      } else {
+        toast.warning(`Skin updated, but some changes were not applied: ${changesNotApplied.join(', ')}`);
+      }
     } catch (error) {
       console.error("Error updating skin:", error);
       toast.dismiss();
@@ -264,19 +379,16 @@ export default function UserDetails({ params }) {
 
   const handleDeleteSkin = async () => {
     if (!selectedSkin) return;
-    const token = Cookies.get("cookiecms_cookie");
-    if (!token) {
-      router.push("/signin");
-      return;
-    }
+    
     try {
       toast.loading("Deleting skin...");
-      const response = await fetch(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
+      
+      // Ensure token is fresh before making the request (will try up to 3 times)
+      await refreshToken();
+      
+      // Use authenticated request with retry mechanism
+      const response = await makeAuthenticatedRequest(`${API_URL}/admin/skin/${selectedSkin.uuid}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
       });
       if (!response.ok) throw new Error("Failed to delete skin");
       setUserSkins((prev) => prev.filter((skin) => skin.uuid !== selectedSkin.uuid));
@@ -290,38 +402,475 @@ export default function UserDetails({ params }) {
     }
   };
 
-  const renderPermissionBadge = (permLevel) => {
+  const renderPermissionBadge = (user) => {
+    const permLevel = user.Permission_Group_Id || user.PermLvl;
+    const groupName = user.Permission_Group_Name || permissionGroups.find(g => g.id === permLevel)?.name || `Level ${permLevel}`;
+    
     switch (permLevel) {
       case 1:
-        return <Badge variant="secondary">User</Badge>;
+        return <Badge variant="secondary">{groupName}</Badge>;
       case 2:
-        return <Badge variant="destructive">HD Skins</Badge>;
+        return <Badge variant="destructive">{groupName}</Badge>;
       case 3:
-        return <Badge variant="destructive">Admins</Badge>;
+        return <Badge variant="destructive">{groupName}</Badge>;
       default:
-        return <Badge variant="outline">{permLevel}</Badge>;
+        return <Badge variant="outline">{groupName}</Badge>;
     }
   };
 
   // Определяем вариант кнопки и метку на основе уровня разрешений
-  const getPermissionButtonProps = (permLevel) => {
+  const getPermissionButtonProps = (user) => {
+    const permLevel = user.Permission_Group_Id;
+    const groupName = user.Permission_Group_Name || permissionGroups.find(g => g.id === permLevel)?.name || `Level ${permLevel}`;
+    
     switch (permLevel) {
       case 1:
-        return { variant: "secondary", label: "User" };
+        return { variant: "secondary", label: groupName };
       case 2:
-        return { variant: "destructive", label: "HD Skins" };
+        return { variant: "destructive", label: groupName };
       case 3:
-        return { variant: "destructive", label: "Admins" };
+        return { variant: "destructive", label: groupName };
       default:
-        return { variant: "outline", label: "Не установлено" };
+        return { variant: "outline", label: groupName };
     }
+  };
+
+  const handlePermissionGroupUpdate = async () => {
+    try {
+      toast.loading("Updating permission group...");
+      
+      // Ensure token is fresh before making request (will try up to 3 times)
+      await refreshToken();
+      
+      // Use authenticated request with automatic token refresh
+      const response = await makeAuthenticatedRequest(`${API_URL}/admin/user/${userId}/group`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          permission_group_id: tempPermLevel,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to update permission group");
+      
+      const result = await response.json();
+      
+      // Verify that the API returned the expected values
+      const expectedPermGroupId = tempPermLevel;
+      const actualPermGroupId = result.data.new_group_id || result.data.permission_group_id;
+      const newGroupName = result.data.new_group_name || result.data.group_name;
+      
+      // Create update record with timestamp for history
+      const updateRecord = {
+        timestamp: new Date().toISOString(),
+        requested: expectedPermGroupId,
+        received: actualPermGroupId,
+        success: actualPermGroupId === expectedPermGroupId,
+        response: result
+      };
+      
+      // Add to history (keeping last 10 updates)
+      setPermissionUpdateHistory(prev => {
+        const updatedHistory = [updateRecord, ...prev];
+        return updatedHistory.slice(0, 10);
+      });
+      
+      // Check for mismatch between requested and actual values
+      if (actualPermGroupId !== expectedPermGroupId) {
+        console.warn(`Permission group ID mismatch: expected ${expectedPermGroupId}, got ${actualPermGroupId}`);
+        toast.warning("Warning: Server returned different permission group ID than requested");
+      }
+      
+      // Save the server response for future reference
+      const updatedPermissionData = {
+        permission_group_id: actualPermGroupId,
+        group_name: newGroupName,
+      };
+      
+      // Store the last API response for debugging/validation purposes
+      localStorage.setItem('lastPermissionUpdateResponse', JSON.stringify(result));
+      // Also save the history of permission updates
+      localStorage.setItem('permissionUpdateHistory', JSON.stringify(updateRecord));
+      
+      // Update local state with new structure from the actual server response
+      setUser(prev => ({ 
+        ...prev, 
+        Permission_Group_Id: actualPermGroupId,
+        Permission_Group_Name: newGroupName,
+      }));
+      setFormData(prev => ({ 
+        ...prev, 
+        Permission_Group_Id: actualPermGroupId,
+        Permission_Group_Name: newGroupName,
+      }));
+      setInitialFormData(prev => ({ 
+        ...prev, 
+        Permission_Group_Id: actualPermGroupId,
+        Permission_Group_Name: newGroupName,
+      }));
+      
+      setPermissionsModalOpen(false);
+      toast.dismiss();
+      
+      // Show appropriate success message
+      if (expectedPermGroupId === actualPermGroupId) {
+        toast.success(`Permission group successfully updated to ${newGroupName}`);
+      } else {
+        toast.success(`Permission group set to ${newGroupName} (ID: ${actualPermGroupId})`);
+      }
+      
+      // Log complete verification information
+      console.log("Permission group update details:", {
+        requested: expectedPermGroupId,
+        received: actualPermGroupId,
+        success: expectedPermGroupId === actualPermGroupId,
+        groupName: newGroupName,
+        timestamp: updateRecord.timestamp
+      });
+    } catch (error) {
+      console.error("Error updating permission group:", error);
+      toast.dismiss();
+      toast.error("Failed to update permission group");
+      
+      // Track failed attempts too
+      setPermissionUpdateHistory(prev => {
+        const failRecord = {
+          timestamp: new Date().toISOString(),
+          requested: tempPermLevel,
+          error: error.message,
+          success: false
+        };
+        return [failRecord, ...prev].slice(0, 10);
+      });
+    }
+  };
+
+  const getCurrentGroupPermissions = () => {
+    const currentGroup = permissionGroups.find(g => g.id === tempPermLevel);
+    return currentGroup?.permissions || [];
+  };
+  
+  // Function to view permission update history
+  const viewPermissionUpdateHistory = () => {
+    // Get history from state and localStorage
+    const stateHistory = permissionUpdateHistory;
+    let storedHistory = [];
+    
+    try {
+      const storedItem = localStorage.getItem('permissionUpdateHistory');
+      if (storedItem) {
+        // If it's a single object, wrap in array
+        storedHistory = JSON.parse(storedItem);
+        if (!Array.isArray(storedHistory)) {
+          storedHistory = [storedHistory];
+        }
+      }
+    } catch (err) {
+      console.error("Error parsing permission history:", err);
+    }
+    
+    // Combine and deduplicate based on timestamp
+    const combinedHistory = [...stateHistory];
+    if (storedHistory.length > 0) {
+      const existingTimestamps = new Set(stateHistory.map(h => h.timestamp));
+      storedHistory.forEach(item => {
+        if (!existingTimestamps.has(item.timestamp)) {
+          combinedHistory.push(item);
+        }
+      });
+    }
+    
+    // Sort by timestamp, most recent first
+    combinedHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    console.log("Permission Update History:", combinedHistory);
+    return combinedHistory;
+  };
+  
+  // Utility function to manually test token refresh with retry
+  const testTokenRefresh = async () => {
+    try {
+      console.log("Testing token refresh with retry mechanism...");
+      // Track start time
+      const startTime = Date.now();
+      
+      // This will attempt to refresh the token up to 3 times
+      const token = await refreshToken();
+      
+      // Calculate duration
+      const duration = Date.now() - startTime;
+      
+      if (token) {
+        console.log(`Token refresh successful after ${duration}ms`);
+        toast.success(`Token refreshed successfully in ${duration}ms`);
+      } else {
+        console.error(`Token refresh failed after ${duration}ms`);
+        toast.error("Token refresh failed after 3 attempts");
+      }
+      
+      return token;
+    } catch (error) {
+      console.error("Error testing token refresh:", error);
+      toast.error(`Token refresh error: ${error.message}`);
+      return null;
+    }
+  };
+  
+  // Add capes to user
+  const handleAddCapesToUser = async (capesToAdd) => {
+    if (!capesToAdd || capesToAdd.length === 0) {
+      toast.info("No capes selected to add");
+      return;
+    }
+    
+    try {
+      toast.loading("Adding capes to user...");
+      
+      // Ensure token is fresh before making the request
+      await refreshToken();
+      
+      // Use the new cape management endpoint
+      const response = await makeAuthenticatedRequest(`${API_URL}/admin/user/${userId}/capes`, {
+        method: "PUT",
+        body: JSON.stringify({
+          cape: capesToAdd
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to add capes");
+      
+      const result = await response.json();
+      console.log("Add capes response:", result);
+      
+      // Update the local state with new capes
+      setUserOwnedCapeIds(prev => {
+        const newCapeIds = [...prev];
+        capesToAdd.forEach(capeId => {
+          if (!newCapeIds.includes(capeId)) {
+            newCapeIds.push(capeId);
+          }
+        });
+        return newCapeIds;
+      });
+      
+      setInitialUserOwnedCapeIds(prev => {
+        const newCapeIds = [...prev];
+        capesToAdd.forEach(capeId => {
+          if (!newCapeIds.includes(capeId)) {
+            newCapeIds.push(capeId);
+          }
+        });
+        return newCapeIds;
+      });
+      
+      toast.dismiss();
+      toast.success(`Successfully added ${capesToAdd.length} cape(s) to user`);
+      
+      // Update user data in state
+      if (result.data && result.data.user) {
+        setUser(prev => ({
+          ...prev,
+          Capes: result.data.user.Capes || prev.Capes
+        }));
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error adding capes:", error);
+      toast.dismiss();
+      toast.error("Failed to add capes to user");
+      return false;
+    }
+  };
+  
+  // Remove capes from user
+  const handleRemoveCapesFromUser = async (capesToRemove) => {
+    if (!capesToRemove || capesToRemove.length === 0) {
+      toast.info("No capes selected to remove");
+      return;
+    }
+    
+    try {
+      toast.loading("Removing capes from user...");
+      
+      // Ensure token is fresh before making the request
+      await refreshToken();
+      
+      // Use the new cape management endpoint
+      const response = await makeAuthenticatedRequest(`${API_URL}/admin/user/${userId}/capes`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          cape: capesToRemove
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to remove capes");
+      
+      const result = await response.json();
+      console.log("Remove capes response:", result);
+      
+      // Update the local state by removing the capes
+      setUserOwnedCapeIds(prev => prev.filter(id => !capesToRemove.includes(id)));
+      setInitialUserOwnedCapeIds(prev => prev.filter(id => !capesToRemove.includes(id)));
+      
+      toast.dismiss();
+      toast.success(`Successfully removed ${capesToRemove.length} cape(s) from user`);
+      
+      // Update user data in state
+      if (result.data && result.data.user) {
+        setUser(prev => ({
+          ...prev,
+          Capes: result.data.user.Capes || prev.Capes.filter(cape => !capesToRemove.includes(cape.Id))
+        }));
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error removing capes:", error);
+      toast.dismiss();
+      toast.error("Failed to remove capes from user");
+      return false;
+    }
+  };
+
+  // Function to handle batch cape operations
+  const handleBatchCapeOperation = async () => {
+    if (selectedCapesForBatch.length === 0) {
+      toast.info("No capes selected for batch operation");
+      return;
+    }
+    
+    if (batchOperation === 'add') {
+      await handleAddCapesToUser(selectedCapesForBatch);
+    } else {
+      await handleRemoveCapesFromUser(selectedCapesForBatch);
+    }
+    
+    // Reset selection after operation
+    setSelectedCapesForBatch([]);
+    setShowBatchCapeManager(false);
+  };
+  
+  // Toggle cape selection for batch operations
+  const toggleCapeForBatch = (capeId) => {
+    setSelectedCapesForBatch(prev => 
+      prev.includes(capeId)
+        ? prev.filter(id => id !== capeId)
+        : [...prev, capeId]
+    );
+  };
+  
+  // Function to render the batch cape manager UI
+  const renderBatchCapeManager = () => {
+    if (!showBatchCapeManager) return null;
+    
+    return (
+      <Card className="mt-4">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Batch Cape Management</CardTitle>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setShowBatchCapeManager(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <Select
+                value={batchOperation}
+                onValueChange={setBatchOperation}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select operation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add">Add capes</SelectItem>
+                  <SelectItem value="remove">Remove capes</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Button 
+                onClick={handleBatchCapeOperation}
+                disabled={selectedCapesForBatch.length === 0}
+              >
+                {batchOperation === 'add' ? 'Add Selected' : 'Remove Selected'} ({selectedCapesForBatch.length})
+              </Button>
+            </div>
+            
+            <div className="border rounded-md p-4 max-h-56 overflow-y-auto">
+              <Input 
+                placeholder="Search capes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="mb-4"
+              />
+              
+              {batchOperation === 'add' ? (
+                // Show capes that are not owned by the user
+                <div className="space-y-2">
+                  {filteredCapes
+                    .filter(cape => !userOwnedCapeIds.includes(cape.uuid))
+                    .map((cape) => (
+                      <div key={cape.uuid} className="flex items-center space-x-2 p-2 hover:bg-muted/50 rounded">
+                        <Checkbox
+                          id={`batch-cape-${cape.uuid}`}
+                          checked={selectedCapesForBatch.includes(cape.uuid)}
+                          onCheckedChange={() => toggleCapeForBatch(cape.uuid)}
+                        />
+                        <label htmlFor={`batch-cape-${cape.uuid}`} className="flex-1 text-sm cursor-pointer">
+                          {cape.name}
+                        </label>
+                        <span className="text-xs text-muted-foreground font-mono">{cape.uuid.substring(0, 8)}...</span>
+                      </div>
+                    ))
+                  }
+                  {filteredCapes.filter(cape => !userOwnedCapeIds.includes(cape.uuid)).length === 0 && (
+                    <div className="py-2 text-center text-sm text-muted-foreground">
+                      User already has all matching capes
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Show capes that are owned by the user
+                <div className="space-y-2">
+                  {filteredCapes
+                    .filter(cape => userOwnedCapeIds.includes(cape.uuid))
+                    .map((cape) => (
+                      <div key={cape.uuid} className="flex items-center space-x-2 p-2 hover:bg-muted/50 rounded">
+                        <Checkbox
+                          id={`batch-cape-${cape.uuid}`}
+                          checked={selectedCapesForBatch.includes(cape.uuid)}
+                          onCheckedChange={() => toggleCapeForBatch(cape.uuid)}
+                        />
+                        <label htmlFor={`batch-cape-${cape.uuid}`} className="flex-1 text-sm cursor-pointer">
+                          {cape.name}
+                        </label>
+                        <span className="text-xs text-muted-foreground font-mono">{cape.uuid.substring(0, 8)}...</span>
+                      </div>
+                    ))
+                  }
+                  {filteredCapes.filter(cape => userOwnedCapeIds.includes(cape.uuid)).length === 0 && (
+                    <div className="py-2 text-center text-sm text-muted-foreground">
+                      User doesn't have any matching capes
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <div className="p-8">
+      <div className="min-h-screen ">
+          <div className="p-8">
           <div className="flex items-center space-x-4 mb-8">
             <Skeleton className="h-10 w-10 rounded-full" />
             <div className="space-y-2">
@@ -349,7 +898,7 @@ export default function UserDetails({ params }) {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen ">
         <Navbar />
         <div className="flex flex-col items-center justify-center p-8 h-[80vh]">
           <div className="text-4xl mb-4">🔍</div>
@@ -364,18 +913,18 @@ export default function UserDetails({ params }) {
   }
 
   // Получаем свойства кнопки разрешений на основе уровня
-  const { variant, label } = getPermissionButtonProps(user.PermLvl);
+  const { variant, label } = getPermissionButtonProps(user);
 
   const filteredCapes = allCapes.filter(cape =>
     cape.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
   return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
+    <div className="min-h-screen ">
+      {/* <Navbar /> */}
       <div className="p-8">
         <div className="flex justify-between items-center mb-6">
-          <Breadcrumb>
+          {/* <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink href="/admin">Admin</BreadcrumbLink>
@@ -389,7 +938,7 @@ export default function UserDetails({ params }) {
                 <BreadcrumbLink>{user.Username}</BreadcrumbLink>
               </BreadcrumbItem>
             </BreadcrumbList>
-          </Breadcrumb>
+          </Breadcrumb> */}
           <div className="flex items-center space-x-2">
             <Button
               variant="outline"
@@ -419,7 +968,7 @@ export default function UserDetails({ params }) {
           <div>
             <div className="flex items-center space-x-2">
               <h1 className="text-2xl font-bold">{user.Username}</h1>
-              {renderPermissionBadge(user.PermLvl)}
+              {renderPermissionBadge(user)}
               {user.Mail_verify ? (
                 <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">
                   <Check className="h-3 w-3 mr-1" /> Verified
@@ -553,9 +1102,23 @@ export default function UserDetails({ params }) {
                     <Separator className="my-6" />
                     <div className="space-y-6">                    
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">
-                          User&apos;s Capes
-                        </label>
+                        <div className="flex justify-between items-center">
+                          <label className="text-sm font-medium">
+                            User&apos;s Capes
+                          </label>
+                          <Button 
+                            type="button"
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setShowBatchCapeManager(!showBatchCapeManager)}
+                            className="flex items-center text-xs"
+                          >
+                            {showBatchCapeManager ? "Hide Batch Manager" : "Batch Cape Manager"}
+                          </Button>
+                        </div>
+                        
+                        {renderBatchCapeManager()}
+                        
                         <div className="border rounded-md p-4 max-h-56 overflow-y-auto">
                           <Input 
                             placeholder="Search capes..."
@@ -667,7 +1230,7 @@ export default function UserDetails({ params }) {
                         <h3 className="text-sm font-medium text-muted-foreground mb-1">Permissions</h3>
                         <p className="flex items-center">
                           <Shield className="h-4 w-4 mr-2 text-muted-foreground" />
-                          {renderPermissionBadge(user.PermLvl)}
+                          {renderPermissionBadge(user)}
                         </p>
                       </div>
                       {user.Discord && (
@@ -822,7 +1385,12 @@ export default function UserDetails({ params }) {
       </AlertDialog>
 
       {/* Модальное окно управления разрешениями */}
-      <AlertDialog open={permissionsModalOpen} onOpenChange={setPermissionsModalOpen}>
+      <AlertDialog open={permissionsModalOpen} onOpenChange={(open) => {
+        setPermissionsModalOpen(open);
+        if (open) {
+          setTempPermLevel(user.Permission_Group_Id || 1);
+        }
+      }}>
         <AlertDialogContent className="max-w-3xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg">
@@ -837,44 +1405,71 @@ export default function UserDetails({ params }) {
             <div className="flex items-center space-x-4">
               <div className="font-medium text-sm">Группа:</div>
               <Select 
-                defaultValue={formData.PermLvl?.toString() || "1"}
+                value={tempPermLevel.toString()}
                 onValueChange={(value) => {
-                  setFormData({ ...formData, PermLvl: parseInt(value, 10) });
+                  setTempPermLevel(parseInt(value, 10));
                 }}
               >
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Выберите группу" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">User (1)</SelectItem>
-                  <SelectItem value="2">HD Skins (2)</SelectItem>
-                  <SelectItem value="3">Admin (3)</SelectItem>
+                  {permissionGroups.length > 0 ? (
+                    permissionGroups.map((group) => (
+                      <SelectItem key={group.id} value={group.id.toString()}>
+                        {group.name} ({group.id})
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="1">User (1)</SelectItem>
+                      <SelectItem value="2">HD Skins (2)</SelectItem>
+                      <SelectItem value="3">Admin (3)</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="sm">Сохранить изменения</Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handlePermissionGroupUpdate}
+                disabled={tempPermLevel === (user.Permission_Group_Id || user.PermLvl)}
+              >
+                Сохранить изменения
+              </Button>
             </div>
       
             <div className="border p-3 rounded-md">
               <div className="font-medium mb-2 text-sm">Текущие разрешения через группу:</div>
               <div className="space-y-1">
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changeusername
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changeskin
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changemail
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changepassword
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Check className="h-3 w-3 mr-2 text-green-500" /> profile.discord
-                </div>
-                <div className="flex items-center text-sm text-muted-foreground opacity-60">
-                  <span className="text-xs mr-2 text-gray-400">...</span> (отображаются серым как унаследованные от группы)
-                </div>
+                {getCurrentGroupPermissions().length > 0 ? (
+                  getCurrentGroupPermissions().map((permission, index) => (
+                    <div key={index} className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> {permission}
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changeusername
+                    </div>
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changeskin
+                    </div>
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changemail
+                    </div>
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> profile.changepassword
+                    </div>
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Check className="h-3 w-3 mr-2 text-green-500" /> profile.discord
+                    </div>
+                    <div className="flex items-center text-sm text-muted-foreground opacity-60">
+                      <span className="text-xs mr-2 text-gray-400">...</span> (отображаются серым как унаследованные от группы)
+                    </div>
+                  </>
+                )}
               </div>
             </div>
       
@@ -923,10 +1518,14 @@ export default function UserDetails({ params }) {
       
           <AlertDialogFooter className="space-x-2">
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction>Сохранить</AlertDialogAction>
+            <AlertDialogAction onClick={handlePermissionGroupUpdate} disabled={tempPermLevel === (user.Permission_Group_Id || user.PermLvl)}>
+              Сохранить группу
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {renderBatchCapeManager()}
     </div>
   );
 }

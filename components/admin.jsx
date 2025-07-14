@@ -10,12 +10,14 @@ import Navbar from "@/components/shared/navbar";
 import { TrendingUp, Users, Palette, Settings, FileText, BarChart, Calendar, Loader2 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import Cookies from "js-cookie";
+import Sidebar from "@/components/shared/sidebar";
+
 // import { toast } from "sonner";
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [dateRange, setDateRange] = useState(14);
-  const [chartType, setChartType] = useState("totalUsers");
+  const [chartType, setChartType] = useState("registrations");
   const [fullData, setFullData] = useState([]);
   const [chartData, setChartData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -107,6 +109,7 @@ export default function AdminDashboard() {
     setChartData(data.slice(-dateRange));
   };
   
+  const totalRegistrations = chartData.reduce((sum, day) => sum + day.registrations, 0);
   const totalCumulativeUsers = chartData[chartData.length - 1]?.cumulativeUsers || 0;
   
   const calculateChange = (dataKey) => {
@@ -118,33 +121,34 @@ export default function AdminDashboard() {
     return ((secondHalf - firstHalf) / firstHalf * 100).toFixed(1);
   };
   
+  const percentChangeRegistrations = calculateChange('registrations');
   const percentChangeCumulativeUsers = calculateChange('cumulativeUsers');
   
   const pages = [
-    // {
-    //   title: "User management",
-    //   description: "View and manage user accounts, permissions and roles",
-    //   path: "/admin/users",
-    //   icon: <Users className="h-6 w-6" />
-    // },
-    // {
-    //   title: "Skin management",
-    //   description: "Customize themes and visual appearances",
-    //   path: "/admin/skins",
-    //   icon: <Palette className="h-6 w-6" />
-    // },
-    // {
-    //   title: "Settings",
-    //   description: "Configure system parameters and preferences",
-    //   path: "/admin/settings",
-    //   icon: <Settings className="h-6 w-6" />
-    // },
-    // {
-    //   title: "Audit",
-    //   description: "View system logs and user activity history",
-    //   path: "/admin/audit",
-    //   icon: <FileText className="h-6 w-6" />
-    // },
+    {
+      title: "User management",
+      description: "View and manage user accounts, permissions and roles",
+      path: "/admin/users",
+      icon: <Users className="h-6 w-6" />
+    },
+    {
+      title: "Skin management",
+      description: "Customize themes and visual appearances",
+      path: "/admin/skins",
+      icon: <Palette className="h-6 w-6" />
+    },
+    {
+      title: "Permissions",
+      description: "Configure system parameters and preferences",
+      path: "/admin/permissions",
+      icon: <Settings className="h-6 w-6" />
+    },
+    {
+      title: "Audit",
+      description: "View system logs and user activity history",
+      path: "/admin/audit",
+      icon: <FileText className="h-6 w-6" />
+    },
   ];
 
   useEffect(() => {
@@ -159,14 +163,23 @@ export default function AdminDashboard() {
       positive: percentChangeCumulativeUsers >= 0,
       icon: <Users className="h-5 w-5" /> 
     },
-    // { title: "Active Skins", value: "18", change: "+3", icon: <Palette className="h-5 w-5" /> },
+    { 
+      title: "New Registrations", 
+      value: totalRegistrations, 
+      change: `${percentChangeRegistrations > 0 ? '+' : ''}${percentChangeRegistrations}%`, 
+      positive: percentChangeRegistrations >= 0,
+      icon: <Users className="h-5 w-5" /> 
+    },
+    { title: "Active Skins", value: "18", change: "+3", icon: <Palette className="h-5 w-5" /> },
   ];
 
   return (
-    <div className="min-h-screen to-muted/20 text-foreground flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 text-foreground flex flex-col">
+      {/* <Navbar /> */}
+
       <div className="flex-1 p-8 max-w-7xl mx-auto w-full">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
-          {/* <h1 className="text-3xl font-bold">Admin Panel</h1> */}
+          <h1 className="text-3xl font-bold">Admin Panel</h1>
           
           <div className="flex flex-wrap gap-2">
             {summaryStats.map((stat, index) => (
@@ -227,6 +240,16 @@ export default function AdminDashboard() {
                   </div>
                   
                   <div className="flex flex-wrap items-center gap-4">
+                    <Select defaultValue="totalUsers" value={chartType} onValueChange={setChartType}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Select view" />
+                      </SelectTrigger>
+                      <SelectContent >
+                        <SelectItem value="registrations">New Registrations</SelectItem>
+                        <SelectItem value="totalUsers">Total Users</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
                     <div className="flex items-center gap-2 bg-muted/40 px-3 py-1 rounded-md text-sm">
                       <Calendar className="h-4 w-4" />
                       <span>Last {dateRange} days</span>
@@ -252,10 +275,34 @@ export default function AdminDashboard() {
                 </div>
                 
                 <div className="flex gap-4 mb-2 px-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                    <span className="text-xs">Total Users</span>
-                  </div>
+                  {chartType === "registrations" ? (
+                    <div className="flex gap-4 mb-2 px-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                        <span className="text-xs">New Registrations</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                        <span className="text-xs">Total Users</span>
+                      </div>
+                    </div>
+                  ) : chartType === "totalUsers" ? (
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                      <span className="text-xs">Total Users</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-primary"></div>
+                        <span className="text-xs">Desktop</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+                        <span className="text-xs">Mobile</span>
+                      </div>
+                    </>
+                  )}
                 </div>
                 
                 <div className="h-72 w-full">
@@ -324,15 +371,65 @@ export default function AdminDashboard() {
                           labelFormatter={(_, data) => data[0]?.payload?.fullDay || ""}
                         />
                         
-                        <Area 
-                          type="monotone" 
-                          dataKey="cumulativeUsers" 
-                          stroke="#3b82f6" 
-                          strokeWidth={2}
-                          fillOpacity={1}
-                          fill="url(#colorCumulativeUsers)"
-                          name="Total Users"
-                        />
+                        {chartType === "registrations" ? (
+                          <>
+                            <Area
+                              type="monotone"
+                              dataKey="registrations"
+                              stroke="#10b981"
+                              strokeWidth={3}
+                              fillOpacity={0.2}
+                              fill="url(#colorRegistrations)"
+                              name="New Registrations"
+                              connectNulls={true}
+                              activeDot={{ r: 7, fill: "#10b981", stroke: "#fff", strokeWidth: 2 }}
+                              dot={{ r: 4, fill: "#10b981" }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="cumulativeUsers"
+                              stroke="#3b82f6"
+                              strokeWidth={3}
+                              fillOpacity={0.2}
+                              fill="url(#colorCumulativeUsers)"
+                              name="Total Users"
+                              connectNulls={true}
+                              activeDot={{ r: 7, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }}
+                              dot={{ r: 4, fill: "#3b82f6" }}
+                            />
+                          </>
+                        ) : chartType === "totalUsers" ? (
+                          <Area 
+                            type="monotone" 
+                            dataKey="cumulativeUsers" 
+                            stroke="#3b82f6" 
+                            strokeWidth={2}
+                            fillOpacity={1}
+                            fill="url(#colorCumulativeUsers)"
+                            name="Total Users"
+                          />
+                        ) : (
+                          <>
+                            <Area 
+                              type="monotone" 
+                              dataKey="desktop" 
+                              stroke="hsl(var(--primary))" 
+                              strokeWidth={2}
+                              fillOpacity={1}
+                              fill="url(#colorDesktop)"
+                              name="Desktop"
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="mobile" 
+                              stroke="#60a5fa" 
+                              strokeWidth={2}
+                              fillOpacity={1}
+                              fill="url(#colorMobile)"
+                              name="Mobile"
+                            />
+                          </>
+                        )}
                       </AreaChart>
                     </ResponsiveContainer>
                   )}
